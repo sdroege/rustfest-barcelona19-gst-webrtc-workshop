@@ -173,6 +173,28 @@ impl App {
             })
             .unwrap();
 
+        // Whenever there is a new ICE candidate, send it to the peer
+        let app_clone = app.downgrade();
+        app.webrtcbin
+            .connect("on-ice-candidate", false, move |values| {
+                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
+                let mlineindex = values[1].get::<u32>().expect("Invalid argument");
+                let candidate = values[2].get::<String>().expect("Invalid argument");
+
+                let app = upgrade_weak!(app_clone, None);
+
+                if let Err(err) = app.on_ice_candidate(mlineindex, candidate) {
+                    gst_element_error!(
+                        app.pipeline,
+                        gst::LibraryError::Failed,
+                        ("Failed to send ICE candidate: {:?}", err)
+                    );
+                }
+
+                None
+            })
+            .unwrap();
+
         // Asynchronously set the pipeline to Playing
         app.pipeline.call_async(|pipeline| {
             // If this fails, post an error on the bus so we exit
@@ -190,9 +212,19 @@ impl App {
 
     // Handle WebSocket messages, both our own as well as WebSocket protocol messages
     fn handle_websocket_message(&self, msg: &str) -> Result<(), anyhow::Error> {
-        println!("received message {}", msg);
+        if msg.starts_with("ERROR") {
+            bail!("Got error message: {}", msg);
+        }
 
-        Ok(())
+        let json_msg: JsonMsg = serde_json::from_str(msg)?;
+
+        match json_msg {
+            JsonMsg::Sdp { type_, sdp } => self.handle_sdp(&type_, &sdp),
+            JsonMsg::Ice {
+                sdp_mline_index,
+                candidate,
+            } => self.handle_ice(sdp_mline_index, &candidate),
+        }
     }
 
     // Handle GStreamer messages coming from the pipeline
@@ -269,6 +301,53 @@ impl App {
         .unwrap();
 
         println!("sending SDP offer to peer: {}", message);
+
+        self.send_msg_tx
+            .lock()
+            .unwrap()
+            .try_send(WsMessage::Text(message))
+            .with_context(|| format!("Failed to send SDP offer"))?;
+
+        Ok(())
+    }
+
+    // Handle incoming SDP answers from the peer
+    fn handle_sdp(&self, type_: &str, sdp: &str) -> Result<(), anyhow::Error> {
+        if type_ == "answer" {
+            print!("Received answer:\n{}\n", sdp);
+
+            let ret = gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
+                .map_err(|_| anyhow!("Failed to parse SDP answer"))?;
+            let answer =
+                gst_webrtc::WebRTCSessionDescription::new(gst_webrtc::WebRTCSDPType::Answer, ret);
+
+            self.webrtcbin
+                .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
+                .unwrap();
+
+            Ok(())
+        } else {
+            bail!("Sdp type is not \"answer\" but \"{}\"", type_)
+        }
+    }
+
+    // Handle incoming ICE candidates from the peer by passing them to webrtcbin
+    fn handle_ice(&self, sdp_mline_index: u32, candidate: &str) -> Result<(), anyhow::Error> {
+        self.webrtcbin
+            .emit("add-ice-candidate", &[&sdp_mline_index, &candidate])
+            .unwrap();
+
+        Ok(())
+    }
+
+    // Asynchronously send ICE candidates to the peer via the WebSocket connection as a JSON
+    // message
+    fn on_ice_candidate(&self, mlineindex: u32, candidate: String) -> Result<(), anyhow::Error> {
+        let message = serde_json::to_string(&JsonMsg::Ice {
+            candidate,
+            sdp_mline_index: mlineindex,
+        })
+        .unwrap();
 
         self.send_msg_tx
             .lock()
