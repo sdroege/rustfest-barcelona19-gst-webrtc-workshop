@@ -501,7 +501,7 @@ rt.block_on(fut);
   <textarea data-template>
     #### Basics
 
-    - We'll go through each important type first
+    - We'll go through each important concept first
       - What is it, how can it be used?
     - Then go together through the code with more explanations
     - Finally everybody has some time to replicate the chapter
@@ -513,97 +513,53 @@ rt.block_on(fut);
 
 <section data-markdown>
   <textarea data-template>
-    #### Basics
+    #### Project Setup
 
-    - We'll go through each important type first
-      - What is it, how can it be used?
-    - Then go together through the code with more explanations
-    - Finally everybody has some time to replicate the chapter
-      - Based on existing code
-      - Reading docs
-      - Playing around
+    - `cargo init`
+    - Add `futures-preview` 0.3.0-alpha.19 to `Cargo.toml`
+      - Add `features = ["async-await"]`
+    - Add `tokio` 0.2.0-alpha.6 to `Cargo.toml`
+    - `use tokio::prelude::*`
+      - Brings all the important traits into scope
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `#[tokio::main]`
+
+    - Hides the runtime setup from us
+    - Allows `main()` to be an `async fn`
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
     #### Look over the code
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 2
-    #### Add an application menu and about dialog
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    <img data-src="img/chapter-2.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gio::SimpleAction`
-
-    - Application/window actions
-      - Can be remote-controlled
-      - Can be activated or state-changed with custom parameter/state type
-    - Stored in application or window
-      - Retrievable by name, callable from anywhere
-    - Good for decoupling code
-
     <aside class="notes" data-markdown>
-      - gio::Action subclass
+      - Does nothing, inefficient
     </aside>
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### `gio::Menu`
-
-    - Menu *model*, no UI
-    - Triggers actions
-    - Allows remote menus
-      - Global (macOS-style) menu
+    ### Chapter 2
+    #### Command-line arguments
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### `gtk::MenuButton`
+    #### `structopt`
 
-    - Button that shows a `gio::Menu` on click
-    - Can contain another widget
-      - e.g. a label or image
-  </textarea>
-</section>
+    - Derives a command-line argument parser from on a struct
+      - `#[derive(StructOpt)]`
+    - Gives an instance of that struct, or error
+    - Generates `--help` output
 
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Image`
-
-    - Widget that shows an image
-    - Can load PNG, SVG, etc.
-    - Can show an icon by name
-      - Theming
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::AboutDialog`
-
-    - Special kind of `Window`, `Dialog
-    - Pre-defined look with properties for
-      - Name, authors, website, etc.
-    - Close button
-
+    - We add a `--server` argument with a default value
     <aside class="notes" data-markdown>
-      - gtk::Dialog, Window, etc subclass
     </aside>
   </textarea>
 </section>
@@ -617,23 +573,129 @@ rt.block_on(fut);
 <section data-markdown>
   <textarea data-template>
     ### Chapter 3
-    #### Webcam view
-
-    <aside class="notes" data-markdown>
-      - Let's start using GStreamer
-    </aside>
+    #### WebSocket Connection
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    <img data-src="img/chapter-3.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+    #### WebSocket
+
+    - Packet-based transport protocol
+    - On top of an (upgraded) HTTP connection
+    - Allows sending arbitrary data, bidirectional
+      - We use it for signalling here
+      - We use an existing signalling server
+      - `wss://webrtc.nirbheek.in:8443`
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    <img data-src="img/pipeline_main.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
+    #### Tungstenite
+
+    - WebSocket implementation in Rust
+    - `tungstenite-tokio` for tokio integration
+    - `connect_async(url)` convenience function
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tungstenite
+
+    - Provides a `Stream` and `Sink` for `Message`s
+      - `Message::Text("123")`, `Message:Ping(_)`
+      - `sink.write(msg)`
+      - `let msg = stream.next().await`
+
+    - Add dependencies for `url`, `tungestenite`, `tokio-tungstenite`
+      - See `Cargo.toml` for details
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Error handling
+
+    - We make use of the `anyhow` crate here
+    - Provides `anyhow::Error`
+      - basically `Box&lt;Error&gt;` on steroids
+    - `anyhow!`, `bail`, etc. macros
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Signalling
+
+    - The server wants each new client to introduce themselves
+      - `HELLO [random id]`
+
+    - It will reply with `HELLO`
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 4
+    #### Joining a session and message loop
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Joining a session
+
+    - The server wants us to join with `SESSION [id]`
+    - Answers with `SESSION_OK` or `ERROR [...]`
+    - Add a command-line argument for the session id
+      - See https://webrtc.nirbheek.in/ for getting one
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Message Loop
+
+    - Afterwards we need to handle messages asynchronously
+      - Ping/pong from WebSocket
+      - Connection closed
+      - SDP offer/answer, ICE, ...
+    - Also later from non-WebSocket sources
+
+    - `futures::select!` loop
+  </textarea>
+</section>
+
+<section>
+  <h4>futures::select!</h4>
+  <pre><code class="rust">
+loop {
+    select! {
+      msg = stream.select_next_some() {
+          match msg? {
+              ...
+          }
+      },
+      complete =&gt; break,
+    };
+}
+  </code></pre>
+  <aside class="notes" data-markdown>
+    - Not ideal API yet, but the best we have
+  </aside>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
   </textarea>
 </section>
 
