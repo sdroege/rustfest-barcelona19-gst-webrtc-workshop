@@ -7,10 +7,12 @@ use rand::prelude::*;
 use structopt::StructOpt;
 
 use tokio::prelude::*;
+use tokio::sync::mpsc;
 
 use tungstenite::Error as WsError;
 use tungstenite::Message as WsMessage;
 
+use gst::gst_element_error;
 use gst::prelude::*;
 
 use anyhow::{anyhow, bail};
@@ -74,7 +76,7 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(args: Args) -> Result<Self, anyhow::Error> {
+    fn new(args: Args) -> Result<(Self, impl Stream<Item = gst::Message>), anyhow::Error> {
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
             "videotestsrc pattern=ball ! videoconvert ! autovideosink \
@@ -86,6 +88,16 @@ impl App {
             .downcast::<gst::Pipeline>()
             .expect("not a pipeline");
 
+        let bus = pipeline.get_bus().unwrap();
+
+        // Send our bus messages via a futures channel to be handled asynchronously
+        let (send_gst_msg_tx, send_gst_msg_rx) = mpsc::unbounded_channel::<gst::Message>();
+        let send_gst_msg_tx = Mutex::new(send_gst_msg_tx);
+        bus.set_sync_handler(move |_, msg| {
+            let _ = send_gst_msg_tx.lock().unwrap().try_send(msg.clone());
+            gst::BusSyncReply::Drop
+        });
+
         // Asynchronously set the pipeline to Playing
         pipeline.call_async(|pipeline| {
             pipeline
@@ -93,12 +105,34 @@ impl App {
                 .expect("Couldn't set pipeline to Playing");
         });
 
-        Ok(App(Arc::new(AppInner { args, pipeline })))
+        Ok((App(Arc::new(AppInner { args, pipeline })), send_gst_msg_rx))
     }
 
     // Handle WebSocket messages, both our own as well as WebSocket protocol messages
     fn handle_websocket_message(&self, msg: &str) -> Result<(), anyhow::Error> {
         println!("received message {}", msg);
+
+        Ok(())
+    }
+
+    // Handle GStreamer messages coming from the pipeline
+    fn handle_pipeline_message(&self, message: &gst::Message) -> Result<(), anyhow::Error> {
+        use gst::message::MessageView;
+
+        match message.view() {
+            MessageView::Error(err) => bail!(
+                "Error from element {}: {} ({})",
+                err.get_src()
+                    .map(|s| String::from(s.get_path_string()))
+                    .unwrap_or_else(|| String::from("None")),
+                err.get_error(),
+                err.get_debug().unwrap_or_else(|| String::from("None")),
+            ),
+            MessageView::Warning(warning) => {
+                println!("Warning: \"{}\"", warning.get_debug().unwrap());
+            }
+            _ => (),
+        }
 
         Ok(())
     }
@@ -122,7 +156,9 @@ async fn run(
     let mut ws_stream = ws_stream.fuse();
 
     // Create our application state
-    let app = App::new(args)?;
+    let (app, send_gst_msg_rx) = App::new(args)?;
+
+    let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
 
     // And now let's start our message loop
     loop {
@@ -142,6 +178,11 @@ async fn run(
                         None
                     },
                 }
+            },
+            // Pass the GStreamer messages to the application control logic
+            gst_msg = send_gst_msg_rx.select_next_some() => {
+                app.handle_pipeline_message(&gst_msg)?;
+                None
             },
             // Once we're done, break the loop and return
             complete => break,
