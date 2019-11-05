@@ -9,6 +9,8 @@ use tokio::prelude::*;
 use tungstenite::Error as WsError;
 use tungstenite::Message as WsMessage;
 
+use gst::prelude::*;
+
 use anyhow::{anyhow, bail};
 
 // upgrade weak reference or return
@@ -45,6 +47,7 @@ struct AppWeak(Weak<AppInner>);
 #[derive(Debug)]
 struct AppInner {
     args: Args,
+    pipeline: gst::Pipeline,
 }
 
 // To be able to access the App's fields directly
@@ -69,8 +72,26 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(args: Args) -> Self {
-        App(Arc::new(AppInner { args }))
+    fn new(args: Args) -> Result<Self, anyhow::Error> {
+        // Create the GStreamer pipeline
+        let pipeline = gst::parse_launch(
+            "videotestsrc pattern=ball ! videoconvert ! autovideosink \
+             audiotestsrc ! audioconvert ! autoaudiosink",
+        )?;
+
+        // Downcast from gst::Element to gst::Pipeline
+        let pipeline = pipeline
+            .downcast::<gst::Pipeline>()
+            .expect("not a pipeline");
+
+        // Asynchronously set the pipeline to Playing
+        pipeline.call_async(|pipeline| {
+            pipeline
+                .set_state(gst::State::Playing)
+                .expect("Couldn't set pipeline to Playing");
+        });
+
+        Ok(App(Arc::new(AppInner { args, pipeline })))
     }
 
     // Handle WebSocket messages, both our own as well as WebSocket protocol messages
@@ -78,6 +99,14 @@ impl App {
         println!("received message {}", msg);
 
         Ok(())
+    }
+}
+
+// Make sure to shut down the pipeline when it goes out of scope
+// to release any system resources
+impl Drop for AppInner {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gst::State::Null);
     }
 }
 
@@ -91,7 +120,7 @@ async fn run(
     let mut ws_stream = ws_stream.fuse();
 
     // Create our application state
-    let app = App::new(args);
+    let app = App::new(args)?;
 
     // And now let's start our message loop
     loop {
@@ -125,8 +154,37 @@ async fn run(
     Ok(())
 }
 
+// Check if all GStreamer plugins we require are available
+fn check_plugins() -> Result<(), anyhow::Error> {
+    let needed = [
+        "videotestsrc",
+        "audiotestsrc",
+        "videoconvert",
+        "audioconvert",
+        "autodetect",
+    ];
+
+    let registry = gst::Registry::get();
+    let missing = needed
+        .iter()
+        .filter(|n| registry.find_plugin(n).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing.is_empty() {
+        bail!("Missing plugins: {:?}", missing);
+    } else {
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    // Initialize GStreamer first
+    gst::init()?;
+
+    check_plugins()?;
+
     let args = Args::from_args();
 
     // Connect to the given server
