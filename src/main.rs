@@ -199,6 +199,20 @@ impl App {
             })
             .unwrap();
 
+        // Whenever there is a new stream incoming from the peer, handle it
+        let app_clone = app.downgrade();
+        app.webrtcbin.connect_pad_added(move |_webrtc, pad| {
+            let app = upgrade_weak!(app_clone);
+
+            if let Err(err) = app.on_incoming_stream(pad) {
+                gst_element_error!(
+                    app.pipeline,
+                    gst::LibraryError::Failed,
+                    ("Failed to handle incoming stream: {:?}", err)
+                );
+            }
+        });
+
         // Asynchronously set the pipeline to Playing
         app.pipeline.call_async(|pipeline| {
             // If this fails, post an error on the bus so we exit
@@ -298,13 +312,16 @@ impl App {
             .emit("set-local-description", &[&offer, &None::<gst::Promise>])
             .unwrap();
 
+        println!(
+            "sending SDP offer to peer: {}",
+            offer.get_sdp().as_text().unwrap()
+        );
+
         let message = serde_json::to_string(&JsonMsg::Sdp {
             type_: "offer".to_string(),
             sdp: offer.get_sdp().as_text().unwrap(),
         })
         .unwrap();
-
-        println!("sending SDP offer to peer: {}", message);
 
         self.send_msg_tx
             .lock()
@@ -358,6 +375,51 @@ impl App {
             .unwrap()
             .try_send(WsMessage::Text(message))
             .with_context(|| format!("Failed to send SDP offer"))?;
+
+        Ok(())
+    }
+
+    // Whenever there's a new incoming, encoded stream from the peer create a new decodebin
+    // and audio/video sink depending on the stream type
+    fn on_incoming_stream(&self, pad: &gst::Pad) -> Result<(), anyhow::Error> {
+        // Early return for the source pads we're adding ourselves
+        if pad.get_direction() != gst::PadDirection::Src {
+            return Ok(());
+        }
+
+        let caps = pad.get_current_caps().unwrap();
+        let s = caps.get_structure(0).unwrap();
+        let media_type = s
+            .get::<&str>("media")
+            .ok_or_else(|| anyhow!("no media type in caps {:?}", caps))?;
+
+        let sink = if media_type == "video" {
+            gst::parse_bin_from_description(
+                "decodebin name=dbin ! queue ! videoconvert ! videoscale ! autovideosink",
+                false,
+            )?
+        } else if media_type == "audio" {
+            gst::parse_bin_from_description(
+                "decodebin name=dbin ! queue ! audioconvert ! audioresample ! autoaudiosink",
+                false,
+            )?
+        } else {
+            println!("Unknown pad {:?}, ignoring", pad);
+            return Ok(());
+        };
+
+        // Add a ghost pad on our sink bin that proxies the sink pad of the decodebin
+        let dbin = sink.get_by_name("dbin").unwrap();
+        let sinkpad =
+            gst::GhostPad::new(Some("sink"), &dbin.get_static_pad("sink").unwrap()).unwrap();
+        sink.add_pad(&sinkpad).unwrap();
+
+        self.pipeline.add(&sink).unwrap();
+        sink.sync_state_with_parent()
+            .with_context(|| format!("can't start sink for stream {:?}", caps))?;
+
+        pad.link(&sinkpad)
+            .with_context(|| format!("can't link sink for stream {:?}", caps))?;
 
         Ok(())
     }
