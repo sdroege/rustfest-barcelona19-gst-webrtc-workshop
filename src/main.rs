@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex, Weak};
+
 use rand::prelude::*;
 
 use structopt::StructOpt;
@@ -9,6 +11,20 @@ use tungstenite::Message as WsMessage;
 
 use anyhow::{anyhow, bail};
 
+// upgrade weak reference or return
+#[macro_export]
+macro_rules! upgrade_weak {
+    ($x:ident, $r:expr) => {{
+        match $x.upgrade() {
+            Some(o) => o,
+            None => return $r,
+        }
+    }};
+    ($x:ident) => {
+        upgrade_weak!($x, ())
+    };
+}
+
 #[derive(Debug, StructOpt)]
 struct Args {
     #[structopt(short, long, default_value = "wss://webrtc.nirbheek.in:8443")]
@@ -17,13 +33,65 @@ struct Args {
     peer_id: u32,
 }
 
+// Strong reference to our application state
+#[derive(Debug, Clone)]
+struct App(Arc<AppInner>);
+
+// Weak reference to our application state
+#[derive(Debug, Clone)]
+struct AppWeak(Weak<AppInner>);
+
+// Actual application state
+#[derive(Debug)]
+struct AppInner {
+    args: Args,
+}
+
+// To be able to access the App's fields directly
+impl std::ops::Deref for App {
+    type Target = AppInner;
+
+    fn deref(&self) -> &AppInner {
+        &self.0
+    }
+}
+
+impl AppWeak {
+    // Try upgrading a weak reference to a strong one
+    fn upgrade(&self) -> Option<App> {
+        self.0.upgrade().map(App)
+    }
+}
+
+impl App {
+    // Downgrade the strong reference to a weak reference
+    fn downgrade(&self) -> AppWeak {
+        AppWeak(Arc::downgrade(&self.0))
+    }
+
+    fn new(args: Args) -> Self {
+        App(Arc::new(AppInner { args }))
+    }
+
+    // Handle WebSocket messages, both our own as well as WebSocket protocol messages
+    fn handle_websocket_message(&self, msg: &str) -> Result<(), anyhow::Error> {
+        println!("received message {}", msg);
+
+        Ok(())
+    }
+}
+
 async fn run(
+    args: Args,
     ws: impl Sink<WsMessage, Error = WsError> + Stream<Item = Result<WsMessage, WsError>>,
 ) -> Result<(), anyhow::Error> {
     // Split the websocket into the Sink and Stream
     let (mut ws_sink, ws_stream) = ws.split();
     // Fuse the Stream, required for the select macro
     let mut ws_stream = ws_stream.fuse();
+
+    // Create our application state
+    let app = App::new(args);
 
     // And now let's start our message loop
     loop {
@@ -39,7 +107,7 @@ async fn run(
                     WsMessage::Pong(_) => None,
                     WsMessage::Binary(_) => None,
                     WsMessage::Text(text) => {
-                        println!("received text: {}", text);
+                        app.handle_websocket_message(&text)?;
                         None
                     },
                 }
@@ -95,5 +163,5 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     // All good, let's run our message loop
-    run(ws).await
+    run(args, ws).await
 }
