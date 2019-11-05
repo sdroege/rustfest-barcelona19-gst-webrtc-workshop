@@ -110,8 +110,6 @@
       - But not the transport!
 
     - Defines a JavaScript API
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -124,9 +122,6 @@
       - GStreamer's used by Servo and us
        - Not feature-equivalent!
       - Janus, ...
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -140,9 +135,6 @@
     - Usually: WebSocket connection via a server
       - Allows both peers to know about each other
       - We'll do this!
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -184,9 +176,6 @@
     - https://www.html5rocks.com/en/tutorials/webrtc/infrastructure
       - Pictures before stolen from there
     - https://webrtchacks.com/sdp-anatomy/
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -206,9 +195,6 @@
 
     - We use Tokio here
       - No WebSocket library for async-std yet
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -316,9 +302,6 @@ rt.block_on(fut);
     - `Stream`: Async version of `Iterator`
     - `Sink`: For async writing out one or more value
     - `AsyncRead` / `AsyncWrite`: See `Read` / `Write`
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -559,8 +542,6 @@ rt.block_on(fut);
     - Generates `--help` output
 
     - We add a `--server` argument with a default value
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -688,9 +669,6 @@ loop {
     };
 }
   </code></pre>
-  <aside class="notes" data-markdown>
-    - Not ideal API yet, but the best we have
-  </aside>
 </section>
 
 <section data-markdown>
@@ -715,9 +693,9 @@ loop {
 
     - We'll need to share application state in multiple places
 
-  <aside class="notes" data-markdown>
-    - Wouldn't need that if we handled all in the same task
-  </aside>
+    <aside class="notes" data-markdown>
+      - Wouldn't need that if we handled all in the same task
+    </aside>
   </textarea>
 </section>
 
@@ -732,9 +710,9 @@ loop {
       - `get()` might return `None`
       - For breaking reference cycles
 
-  <aside class="notes" data-markdown>
-    - Reference cycle explanation
-  </aside>
+    <aside class="notes" data-markdown>
+      - Reference cycle explanation
+    </aside>
   </textarea>
 </section>
 
@@ -747,10 +725,10 @@ loop {
     - Add `upgrade()` / `downgrade()` functions
     - `upgrade_weak!()` macro
 
-  <aside class="notes" data-markdown>
-    - Boilerplate I use in many places
-    - Macro explanation
-  </aside>
+    <aside class="notes" data-markdown>
+      - Boilerplate I use in many places
+      - Macro explanation
+    </aside>
   </textarea>
 </section>
 
@@ -758,11 +736,11 @@ loop {
   <textarea data-template>
     #### Look over the code
 
-  <aside class="notes" data-markdown>
-    - we also move text message handling into the state
-    - and store our arguments for later use
-    - we won't make use of it much yet!
-  </aside>
+    <aside class="notes" data-markdown>
+      - we also move text message handling into the state
+      - and store our arguments for later use
+      - we won't make use of it much yet!
+    </aside>
   </textarea>
 </section>
 
@@ -807,8 +785,7 @@ loop {
     #### `gst::parse_launch()`
 
     - Creates a `gst::Pipeline` from a textual description
-    - `videotestsrc pattern=ball ! videoconvert ! autovideosink  audiotestsrc !
-      audioconvert ! autoaudiosink`
+    - `videotestsrc pattern=ball ! videoconvert ! autovideosink`
       - Also allows branching, parallel chains, ...
       - Can also use `autovideosrc` and `autoaudiosrc`
 
@@ -830,10 +807,7 @@ loop {
     - We need to set them to the `Playing` state so they start
     - Might block
       - Do it asynchronously!
-      - `element.call_async(|element| { ... })`
-
-    <aside class="notes" data-markdown>
-    </aside>
+      - `element.call_async(|element| ...)`
   </textarea>
 </section>
 
@@ -942,9 +916,6 @@ loop {
 
     - Emitted once `webrtcbin` needs (re-)negotiation
     - We'll get an Offer SDP from here later
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -973,9 +944,6 @@ loop {
     - It takes an `gst::Promise`
       - Like a `Future`, gets the result later
       - `change_function` callback when value is available
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -988,9 +956,6 @@ loop {
     - We need to send that to the peer so it can send us its own
     - API in the `gstreamer-sdp` library
       - We simply convert it to a string
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -1002,9 +967,6 @@ loop {
     - We send the SDP as JSON to the peer
       - `serde-json` crate
     - `#[derive(Serialize, Deserialize)]`
-
-    <aside class="notes" data-markdown>
-    </aside>
   </textarea>
 </section>
 
@@ -1051,7 +1013,7 @@ loop {
 
     - Peer is going to send us its SDP
       - `set-remote-description` on the `webrtcbin`
-    - Peer is going to send use ICE candidates
+    - Peer is going to send us ICE candidates
       - `add-ice-candidate` on the `webrtcbin`
     - We have to send ICE candidates
       - `on-ice-candidate` signal
@@ -1141,10 +1103,11 @@ loop {
     - Link to an audio or video sink
       - "queue ! audioconvert ! audioresample ! autoaudiosink"
       - "queue ! videoconvert ! videoscale ! autovideosink"
-    <aside class="notes" data-markdown>
-      - queues for buffering
-      - sync state with parent
-    </aside>
+
+      <aside class="notes" data-markdown>
+        - queues for buffering
+        - sync state with parent
+      </aside>
   </textarea>
 </section>
 
