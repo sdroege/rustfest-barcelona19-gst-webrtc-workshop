@@ -15,7 +15,7 @@ use gst::prelude::*;
 
 use serde_derive::{Deserialize, Serialize};
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
 
@@ -71,6 +71,7 @@ struct AppInner {
     args: Args,
     pipeline: gst::Pipeline,
     webrtcbin: gst::Element,
+    send_msg_tx: Mutex<mpsc::UnboundedSender<WsMessage>>,
 }
 
 // To be able to access the App's fields directly
@@ -95,7 +96,16 @@ impl App {
         AppWeak(Arc::downgrade(&self.0))
     }
 
-    fn new(args: Args) -> Result<(Self, impl Stream<Item = gst::Message>), anyhow::Error> {
+    fn new(
+        args: Args,
+    ) -> Result<
+        (
+            Self,
+            impl Stream<Item = gst::Message>,
+            impl Stream<Item = WsMessage>,
+        ),
+        anyhow::Error,
+    > {
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
         "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. \
@@ -127,6 +137,9 @@ impl App {
             gst::BusSyncReply::Drop
         });
 
+        // Channel for outgoing WebSocket messages from other threads
+        let (send_ws_msg_tx, send_ws_msg_rx) = mpsc::unbounded_channel::<WsMessage>();
+
         // Asynchronously set the pipeline to Playing
         pipeline.call_async(|pipeline| {
             pipeline
@@ -138,6 +151,7 @@ impl App {
             args,
             pipeline,
             webrtcbin,
+            send_msg_tx: Mutex::new(send_ws_msg_tx),
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
@@ -171,7 +185,7 @@ impl App {
             }
         });
 
-        Ok((app, send_gst_msg_rx))
+        Ok((app, send_gst_msg_rx, send_ws_msg_rx))
     }
 
     // Handle WebSocket messages, both our own as well as WebSocket protocol messages
@@ -256,6 +270,12 @@ impl App {
 
         println!("sending SDP offer to peer: {}", message);
 
+        self.send_msg_tx
+            .lock()
+            .unwrap()
+            .try_send(WsMessage::Text(message))
+            .with_context(|| format!("Failed to send SDP offer"))?;
+
         Ok(())
     }
 }
@@ -278,9 +298,10 @@ async fn run(
     let mut ws_stream = ws_stream.fuse();
 
     // Create our application state
-    let (app, send_gst_msg_rx) = App::new(args)?;
+    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args)?;
 
     let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
+    let mut send_ws_msg_rx = send_ws_msg_rx.fuse();
 
     // And now let's start our message loop
     loop {
@@ -306,6 +327,9 @@ async fn run(
                 app.handle_pipeline_message(&gst_msg)?;
                 None
             },
+            // Handle WebSocket messages we created asynchronously
+            // to send them out now
+            ws_msg = send_ws_msg_rx.select_next_some() => Some(ws_msg),
             // Once we're done, break the loop and return
             complete => break,
         };
