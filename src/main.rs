@@ -15,6 +15,8 @@ use tungstenite::Message as WsMessage;
 use gst::gst_element_error;
 use gst::prelude::*;
 
+use serde_derive::{Deserialize, Serialize};
+
 use anyhow::{anyhow, bail};
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
@@ -40,6 +42,22 @@ struct Args {
     server: String,
     #[structopt(short, long)]
     peer_id: u32,
+}
+
+// JSON messages we communicate with
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum JsonMsg {
+    Ice {
+        candidate: String,
+        #[serde(rename = "sdpMLineIndex")]
+        sdp_mline_index: u32,
+    },
+    Sdp {
+        #[serde(rename = "type")]
+        type_: String,
+        sdp: String,
+    },
 }
 
 // Strong reference to our application state
@@ -133,8 +151,13 @@ impl App {
                 let _webrtc = values[0].get::<gst::Element>().unwrap();
 
                 let app = upgrade_weak!(app_clone, None);
-
-                println!("on-negotiation-needed");
+                if let Err(err) = app.on_negotiation_needed() {
+                    gst_element_error!(
+                        app.pipeline,
+                        gst::LibraryError::Failed,
+                        ("Failed to negotiate: {:?}", err)
+                    );
+                }
 
                 None
             })
@@ -180,6 +203,62 @@ impl App {
             }
             _ => (),
         }
+
+        Ok(())
+    }
+
+    // Whenever webrtcbin tells us that (re-)negotiation is needed, simply ask
+    // for a new offer SDP from webrtcbin without any customization and then
+    // asynchronously send it to the peer via the WebSocket connection
+    fn on_negotiation_needed(&self) -> Result<(), anyhow::Error> {
+        println!("starting negotiation");
+
+        let app_clone = self.downgrade();
+        let promise = gst::Promise::new_with_change_func(move |promise| {
+            let app = upgrade_weak!(app_clone);
+
+            if let Err(err) = app.on_offer_created(promise) {
+                gst_element_error!(
+                    app.pipeline,
+                    gst::LibraryError::Failed,
+                    ("Failed to send SDP offer: {:?}", err)
+                );
+            }
+        });
+
+        self.webrtcbin
+            .emit("create-offer", &[&None::<gst::Structure>, &promise])
+            .unwrap();
+
+        Ok(())
+    }
+
+    // Once webrtcbin has create the offer SDP for us, handle it by sending it to the peer via the
+    // WebSocket connection
+    fn on_offer_created(&self, promise: &gst::Promise) -> Result<(), anyhow::Error> {
+        let reply = match promise.wait() {
+            gst::PromiseResult::Replied => promise.get_reply().unwrap(),
+            err => {
+                bail!("Offer creation future got no reponse: {:?}", err);
+            }
+        };
+
+        let offer = reply
+            .get_value("offer")
+            .unwrap()
+            .get::<gst_webrtc::WebRTCSessionDescription>()
+            .expect("Invalid argument");
+        self.webrtcbin
+            .emit("set-local-description", &[&offer, &None::<gst::Promise>])
+            .unwrap();
+
+        let message = serde_json::to_string(&JsonMsg::Sdp {
+            type_: "offer".to_string(),
+            sdp: offer.get_sdp().as_text().unwrap(),
+        })
+        .unwrap();
+
+        println!("sending SDP offer to peer: {}", message);
 
         Ok(())
     }
