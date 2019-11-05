@@ -701,6 +701,80 @@ loop {
 
 <section data-markdown>
   <textarea data-template>
+    ### Chapter 5
+    #### Application State
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `Arc` and weak references
+
+    - We're going to introduce new threads
+    - Also GStreamer has a callback-based API
+
+    - We'll need to share application state in multiple places
+
+  <aside class="notes" data-markdown>
+    - Wouldn't need that if we handled all in the same task
+  </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `Arc` and weak references
+
+    - `Arc` gives atomic reference counting
+      - Struct is destroyed when no more references left
+    - `Weak` gives a weak reference
+      - Does not keep struct alive
+      - `get()` might return `None`
+      - For breaking reference cycles
+
+  <aside class="notes" data-markdown>
+    - Reference cycle explanation
+  </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `Arc` and weak references
+
+    - `AppInner` struct with actual state
+    - Add tuple structs around `Arc` and `Weak`
+    - Add `upgrade()` / `downgrade()` functions
+    - `upgrade_weak!()` macro
+
+  <aside class="notes" data-markdown>
+    - Boilerplate I use in many places
+    - Macro explanation
+  </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+
+  <aside class="notes" data-markdown>
+    - we also move text message handling into the state
+    - and store our arguments for later use
+    - we won't make use of it much yet!
+  </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 6
+    #### GStreamer Introduction
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
     #### `gst::init()`
 
     - Necessary to initialize GStreamer
@@ -733,8 +807,12 @@ loop {
     #### `gst::parse_launch()`
 
     - Creates a `gst::Pipeline` from a textual description
-    - `autovideosrc ! queue ! videoconvert ! gtkglsink`
+    - `videotestsrc pattern=ball ! videoconvert ! autovideosink  audiotestsrc !
+      audioconvert ! autoaudiosink`
       - Also allows branching, parallel chains, ...
+      - Can also use `autovideosrc` and `autoaudiosrc`
+
+    - Returns a `gst::Element`: use `downcast()`!
 
     <aside class="notes" data-markdown>
       - Also possible to create and connect each part manually
@@ -746,328 +824,15 @@ loop {
 
 <section data-markdown>
   <textarea data-template>
-    #### `gst::Bus`
+    #### Element States
 
-    - Provides message notifications from the pipeline
-      - Errors, Warnings, End-of-stream, ...
-    - Can easily dispatch messages to our main thread
-    - `gst::MessageView` enum for inspecting messages
-
-    <aside class="notes" data-markdown>
-      - Remember: GTK single-threaded, GStreamer not
-      - Basically a thread-safe message queue
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `fragile::Fragile`
-
-    - Runtime checking for the `Send` trait
-    - What is `RefCell` to references
+    - Pipelines/elements have states
+    - We need to set them to the `Playing` state so they start
+    - Might block
+      - Do it asynchronously!
+      - `element.call_async(|element| { ... })`
 
     <aside class="notes" data-markdown>
-      - Bus can dispatch to our main thread but the type system can't know
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtksink`
-
-    - Provides video output from GStreamer to GTK+
-    - Provides a `gtk::Widget` via "widget" property
-      - `sink.get_property()`
-      - `window.add(&amp;widget)`
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Look over the code
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 4
-    #### Settings dialog for snapshot/record settings
-
-    <aside class="notes" data-markdown>
-      - More GTK+ widget usage
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    <img data-src="img/chapter-4.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Settings Storage
-
-    - `serde` toml configuration file
-    - Stored in user config directory
-    - `glib` provides us with user config, pictures, videos directories
-    - Normal Rust struct with derived `Serialize`/`Deserialize`
-
-    <aside class="notes" data-markdown>
-      - Simply load from disk whenever it changes for simplicity
-      - Simply store directly whenever it is changed
-      - We use the FS as persistent storage
-      - Mention GSettings
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Dialog`
-
-    - Dialog with close button and custom content area
-    - Like the `AboutDialog` but we define the content
-    - Allows adding pre-defined and custom buttons
-      - Trigger the `response` signal with the button id
-
-    <aside class="notes" data-markdown>
-      - We build the dialog manually to learn widgets
-      - See gtk::Builder
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Grid`
-
-    - Table layout container for widgets
-      - Items attached to specific rows/colums
-    - Other commonly used container: `gtk::Box`
-      - Allows dynamic placement of widgets vertically or horizontally
-
-    <aside class="notes" data-markdown>
-      - We build the dialog manually to learn widgets
-      - See gtk::Builder
-      - gtk::Container, gtk::Bin
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Label`
-
-    - Simple plain text widget
-
-    <aside class="notes" data-markdown>
-      - Like anything, can be styled with CSS
-      - Pango markup
-      - Text positioning
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::FileChooserButton`
-
-    - Button that opens a file chooser
-      - Stores selected location
-      - Allowed selection can be configured
-    - Set default what is stored in the settings
-
-    <aside class="notes" data-markdown>
-      - Combination of Button and FileChooserDialog in one
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::ComboBoxText`
-
-    - Text-based combo box
-    - Allows selecting one out of multiple options
-
-    <aside class="notes" data-markdown>
-      - Simple text based: also exists with backing model
-      - Text entry: ComboBoxEntry
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::SpinButton`
-
-    - +/- integer/decimal value selector button
-    - Configurable range and step
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Look over the code
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 5
-    #### Implement snapshotting timer
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    <img data-src="img/chapter-5.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Overlay`
-
-    - Widget container
-      - One main widget
-      - Overlay widgets stacked on each other
-
-    <aside class="notes" data-markdown>
-      - Main widget of our window
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::ToggleButton`
-
-    - Button that can be toggled between pressed and not-pressed
-    - Keeps boolean state ("active")
-    - `btn.connect_clicked()` for providing callback
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::CssProvider` &amp; `gtk::StyleContext`
-
-    - Allows custom styling of widgets via CSS
-    - Provider contains CSS itself
-    - Style contexts are added to application screen
-      - With application priority
-      - Widgets select style based on all providers
-
-    <aside class="notes" data-markdown>
-      - Initialize as part of the application
-      - Use CSS classes via widget names
-      - Our timer label
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::Widget::set_name()`
-
-    - Widget names are matched against CSS selectors
-      - Together with their class, e.g. `gtk::Label`
-      - See documentation for what is possible
-
-    <aside class="notes" data-markdown>
-      - A lot is possible!
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::timeout_add()`
-
-    - Calls a callback in pre-defined intervals
-      - Until it returns `glib::Continue(false)`
-    - Called from our main thread, calls in our main thread
-
-    <aside class="notes" data-markdown>
-      - glib::timeout_add() from arbitrary threads: Needs Send
-      - other kinds of callbacks: idle, unix signals, fd readiness
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Look over the code
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 6
-    #### Implement snapshotting
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gst::Sample`
-
-    - Contains a buffer with metadata
-      - E.g. format information
-      - Buffer == video frame in our case
-    - Last sample can be retrieved from sink
-      - "last-sample" property
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gst::Caps`
-
-    - Format description
-      - e.g. `image/jpeg, width=640, height=480`
-
-    <aside class="notes" data-markdown>
-      - Like mimetypes
-      - Fields optional, can describe multiple possibilities
-      - Ranges, lists, ...
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gst_video::convert_sample_async()`
-
-    - Takes a sample and output caps
-    - Converts into the given format or times/errors out
-    - Calls callback with the result
-      - from our main thread
-
-    <aside class="notes" data-markdown>
-      - Closure needs to be Send
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gst::Buffer`
-
-    - Contained in the sample
-    - Contains the actual data
-      - Must be mapped to get access as `&amp;[u8]`
-    - Copy-on-write + reference counting
-
-    <aside class="notes" data-markdown>
-      - Content can be stored in arbitrary ways
-      - e.g. malloc(), GL textures + transparent down/uploading
-      - See `Arc::make_mut()`
     </aside>
   </textarea>
 </section>
@@ -1081,83 +846,228 @@ loop {
 <section data-markdown>
   <textarea data-template>
     ### Chapter 7
-    #### Implement recording (part 1)
+    #### GStreamer Message Handling
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    <img data-src="img/chapter-7.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
+    #### `gst::Bus`
 
-<section data-markdown>
-  <textarea data-template>
-    <img data-src="img/pipeline_recording.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `tee`
-
-    - "Stream splitter" element
-    - Allows addition/removal of outputs at any time
+    - Provides message notifications from the pipeline
+      - Errors, Warnings, End-of-stream, ...
+    - `gst::MessageView` enum for inspecting messages
+    - Can give us messages from a callback
+      - Pass to our message loop via mpsc channels
 
     <aside class="notes" data-markdown>
-      - Does not copy any media data: refcounting
+      - GStreamer multi-threaded
+      - Basically a thread-safe message queue
     </aside>
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### `filesink`
+    #### Element states
 
-    - Writes a stream to a local file
-    - "location" property for the path
-      - Must be UTF-8
+    - Setting the pipeline state can fail
+    - Asynchronously send an error message on the bus
+      - `gst_element_error!` macro on the pipeline
 
     <aside class="notes" data-markdown>
-      - Does not care about the format
     </aside>
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### Encoders
-
-    - Convert raw video into compressed video
-      - `x264enc` for H.264
-      - `vp8enc` for VP8/WebM
-    - Both work basically the same
-      - apart from properties
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Muxers
-
-    - Multiplex audio/video into a container format
-      - `mp4mux` for MP4
-      - `webmmux` for WebM
-    - Both work basically the same
-      - apart from properties
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gst::parse_bin_from_description()`
-
-    - Similar to `gst::parse_launch()` but creates a `gst::Bin`
-      - a "pipeline part" containing one or more elements
+    #### Look over the code
 
     <aside class="notes" data-markdown>
-      - We need to connect the result into our main pipeline
     </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 8
+    #### WebRTC Offer Part 1
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/pipeline_webrtc.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `webrtcbin`
+
+    - Represents a single WebRTC session
+      - Audio, video, datachannel, etc.
+    - Does SDP/ICE and network handling
+    - Input/output: RTP packets
+      - Our input stream, their stream
+
+    <aside class="notes" data-markdown>
+      - We only have to provide correct input
+      - Pass SDP/ICE around via WebSocket
+      - Handle incoming streams
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Encoding and RTP payloading
+
+    - We'll use VP8 / Opus
+    - `vp8enc`: encodes raw video
+      - Need to set "deadline" property to 1
+    - `opusenc`: encodes raw audio
+    - `rtpvp8pay` / `rtpopuspay`: packetizes RTP
+
+    <aside class="notes" data-markdown>
+      - Deadline: produce live, ASAP
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `on-negotiation-needed` signal
+
+    - Emitted once `webrtcbin` needs (re-)negotiation
+    - We'll get an Offer SDP from here later
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+
+    <aside class="notes" data-markdown>
+      - Also set "is-live" to true
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 9
+    #### WebRTC Offer Part 2
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `on-negotiation-needed` signal
+
+    - Here we need to call the "create-offer" action on `webrtcbin`
+    - It takes an `gst::Promise`
+      - Like a `Future`, gets the result later
+      - `change_function` callback when value is available
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### SDP
+
+    - `create-offer` promise gives us an SDP for our streams
+    - Set on `webrtcbin` via `set-local-description`
+    - We need to send that to the peer so it can send us its own
+    - API in the `gstreamer-sdp` library
+      - We simply convert it to a string
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Serde
+
+    - Library for (de-)serializing in various formats
+    - We send the SDP as JSON to the peer
+      - `serde-json` crate
+    - `#[derive(Serialize, Deserialize)]`
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 10
+    #### WebRTC Offer Part 3
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Channels
+
+    - We got the WebRTC Offer in some arbitrary thread now
+    - It has to be send via WebSocket to the peer but we have no
+      access to the WebSocket here
+    - Solution: Use another mpsc channel for outgoing WebSocket messages
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 11
+    #### WebRTC Answer and ICE
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Handle WebSocket messages
+
+    - Peer is going to send us its SDP
+      - `set-remote-description` on the `webrtcbin`
+    - Peer is going to send use ICE candidates
+      - `add-ice-candidate` on the `webrtcbin`
+    - We have to send ICE candidates
+      - `on-ice-candidate` signal
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 12
+    #### WebRTC Incoming Streams
   </textarea>
 </section>
 
@@ -1181,18 +1091,59 @@ loop {
 
 <section data-markdown>
   <textarea data-template>
-    #### Adding recording bin
+    #### `gst::Caps`
 
-    - Create bin
-    - Set "location" property on `filesink`
-    - Set bin to `gst::State::Playing`
-    - Add to pipeline
-    - Get request pad from `tee`
-    - Link to `tee` pad to bin
+    - Format description
+      - e.g. `image/jpeg, width=640, height=480`
+    - Pads give their format via `Caps`
 
     <aside class="notes" data-markdown>
-      - We can state before adding because pipeline part is data driven and does not produce
-      - Careful
+      - Like mimetypes
+      - Fields optional, can describe multiple possibilities
+      - Ranges, lists, ...
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `decodebin`
+
+    - Automatically decodes one input stream
+      - Collects decoders, etc. as needed
+    - "pad-added" for each decoded stream
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::parse_bin_from_description()`
+
+    - Similar to `gst::parse_launch()` but creates a `gst::Bin`
+      - a "pipeline part" containing one or more elements
+
+    <aside class="notes" data-markdown>
+      - We need to connect the result into our main pipeline
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Incoming streams
+
+    - "pad-added" signal on `webrtcbin` for the encoded streams
+    - Link in a `decodebin` element
+    - "pad-added" signal on `decodebin` for the decoded streams
+    - Link to an audio or video sink
+      - "queue ! audioconvert ! audioresample ! autoaudiosink"
+      - "queue ! videoconvert ! videoscale ! autovideosink"
+    <aside class="notes" data-markdown>
+      - queues for buffering
+      - sync state with parent
     </aside>
   </textarea>
 </section>
@@ -1205,119 +1156,34 @@ loop {
 
 <section data-markdown>
   <textarea data-template>
-    ### Chapter 8
-    #### Implement recording (part 2)
+    ### Chapter 13
+    #### WebRTC Accepting an Offer
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### Stopping and removing recording
+    #### Accepting an Offer
 
-    - More tricky!
-    - Wait until `tee` pad is idle
-      - Pad probe callback
-    - Unlink, release request pad
-    - Async send End-of-stream event (EOS)
-      - Wait for message, then shutdown and remove bin
-
-    <aside class="notes" data-markdown>
-      - Not idle: unlinking could block
-      - EOS: finalize the stream
-      - Event becomes message once done
-    </aside>
+    - Right now we can only initiate sessions
+    - We optionally want to be able to answer offers
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
-    #### Look over the code
-  </textarea>
-</section>
+    #### Accepting an Offer
 
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 9
-    #### Error dialogs
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### `gtk::MessageDialog`
-
-    - Pre-defined dialog for errors, warnings, information, etc.
-    - Like other dialogs can/should be modal
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Errors from other threads
-
-    - `glib::idle_add()` runs on the main loop
-    - `gst::Message::new_application()` with custom content posted on the bus
-    - `futures_channel`
-
-    <aside class="notes" data-markdown>
-      - We use the message here as it's all set up already
-    </aside>
+    - Don't handle "on-negotiation-needed"
+    - Wait for an Offer SDP
+    - "set-remote-description", and "create-answer"
+    - Send to the peer
   </textarea>
 </section>
 
 <section data-markdown>
   <textarea data-template>
     #### Look over the code
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    ### Chapter 10
-    #### Next steps
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Ensure that recording has stopped before quit
-
-    - Trigger recording stop code
-    - Don't let application shut down before it's finished
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    <img data-src="img/chapter-10.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Effects
-
-    - Add before the `tee`
-    - Don't forget converters
-    - Addition/removal works the same as for stopping of recording
-    - Interesting effects
-      - `agingtv`, `shagadelictv`, `vertigotv`, others from the `effectv` plugin
-      - `gaudieffects` plugin
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Effects Dialog
-
-    - Could show a selection of effects that can be chosen from
-      - Even better live preview!
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    Let your imagination run freely!
   </textarea>
 </section>
 

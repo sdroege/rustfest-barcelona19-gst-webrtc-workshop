@@ -1,0 +1,6 @@
+body {
+    background-image: url('../logos/gstreamer.svg'), url('../logos/centricular.svg');
+    background-size: 20%, 25%;
+    background-repeat: no-repeat;
+    background-position: 3% 96%, 93% 96%;
+}
