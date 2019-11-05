@@ -15,6 +15,8 @@ use gst::prelude::*;
 
 use anyhow::{anyhow, bail};
 
+const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
+
 // upgrade weak reference or return
 #[macro_export]
 macro_rules! upgrade_weak {
@@ -50,6 +52,7 @@ struct AppWeak(Weak<AppInner>);
 struct AppInner {
     args: Args,
     pipeline: gst::Pipeline,
+    webrtcbin: gst::Element,
 }
 
 // To be able to access the App's fields directly
@@ -77,14 +80,24 @@ impl App {
     fn new(args: Args) -> Result<(Self, impl Stream<Item = gst::Message>), anyhow::Error> {
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
-            "videotestsrc pattern=ball ! videoconvert ! autovideosink \
-             audiotestsrc ! audioconvert ! autoaudiosink",
-        )?;
+        "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. \
+         audiotestsrc is-live=true ! opusenc ! rtpopuspay pt=97 ! webrtcbin. \
+         webrtcbin name=webrtcbin"
+    )?;
 
         // Downcast from gst::Element to gst::Pipeline
         let pipeline = pipeline
             .downcast::<gst::Pipeline>()
             .expect("not a pipeline");
+
+        // Get access to the webrtcbin by name
+        let webrtcbin = pipeline
+            .get_by_name("webrtcbin")
+            .expect("can't find webrtcbin");
+
+        // Set some properties on webrtcbin
+        webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
+        webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
 
         let bus = pipeline.get_bus().unwrap();
 
@@ -103,7 +116,39 @@ impl App {
                 .expect("Couldn't set pipeline to Playing");
         });
 
-        Ok((App(Arc::new(AppInner { args, pipeline })), send_gst_msg_rx))
+        let app = App(Arc::new(AppInner {
+            args,
+            pipeline,
+            webrtcbin,
+        }));
+
+        // Connect to on-negotiation-needed to handle sending an Offer
+        let app_clone = app.downgrade();
+        app.webrtcbin
+            .connect("on-negotiation-needed", false, move |values| {
+                let _webrtc = values[0].get::<gst::Element>().unwrap();
+
+                let app = upgrade_weak!(app_clone, None);
+
+                println!("on-negotiation-needed");
+
+                None
+            })
+            .unwrap();
+
+        // Asynchronously set the pipeline to Playing
+        app.pipeline.call_async(|pipeline| {
+            // If this fails, post an error on the bus so we exit
+            if pipeline.set_state(gst::State::Playing).is_err() {
+                gst_element_error!(
+                    pipeline,
+                    gst::LibraryError::Failed,
+                    ("Failed to set pipeline to Playing")
+                );
+            }
+        });
+
+        Ok((app, send_gst_msg_rx))
     }
 
     // Handle WebSocket messages, both our own as well as WebSocket protocol messages
@@ -203,6 +248,17 @@ fn check_plugins() -> Result<(), anyhow::Error> {
         "videoconvert",
         "audioconvert",
         "autodetect",
+        "opus",
+        "vpx",
+        "webrtc",
+        "nice",
+        "dtls",
+        "srtp",
+        "rtpmanager",
+        "rtp",
+        "playback",
+        "videoscale",
+        "audioresample",
     ];
 
     let registry = gst::Registry::get();
