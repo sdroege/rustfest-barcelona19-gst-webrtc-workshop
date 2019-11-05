@@ -1,49 +1,1289 @@
 <!doctype html>
 <html>
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+                <title>RustFest 2019 Barcelona: WebRTC, Tokio &amp; GStreamer Workshop</title>
 
-		<link rel="stylesheet" href="css/reset.css">
-		<link rel="stylesheet" href="css/reveal.css">
-		<link rel="stylesheet" href="css/theme/black.css">
+                <link rel="stylesheet" href="css/reset.css">
+                <link rel="stylesheet" href="css/reveal.css">
+                <link rel="stylesheet" href="css/theme/night.css">
+                <link rel="stylesheet" href="css/reveal-override.css"/>
 
-		<!-- Theme used for syntax highlighting of code -->
-		<link rel="stylesheet" href="lib/css/monokai.css">
+                <!-- Theme used for syntax highlighting of code -->
+                <link rel="stylesheet" href="lib/css/monokai.css">
 
-		<!-- Printing and PDF exports -->
-		<script>
-			var link = document.createElement( 'link' );
-			link.rel = 'stylesheet';
-			link.type = 'text/css';
-			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
-			document.getElementsByTagName( 'head' )[0].appendChild( link );
-		</script>
-	</head>
-	<body>
-		<div class="reveal">
-			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
-			</div>
-		</div>
+                <!-- Printing and PDF exports -->
+                <script>
+                        var link = document.createElement( 'link' );
+                        link.rel = 'stylesheet';
+                        link.type = 'text/css';
+                        link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+                        document.getElementsByTagName( 'head' )[0].appendChild( link );
+                </script>
+        </head>
+        <body>
+                <div class="reveal">
+                        <div class="slides">
+<section data-markdown>
+    <textarea data-template>
+      ### Workshop: WebRTC, Tokio &amp; GStreamer
 
-		<script src="js/reveal.js"></script>
+      <br>
+      RustFest 2019 Barcelona
 
-		<script>
-			// More info about config & dependencies:
-			// - https://github.com/hakimel/reveal.js#configuration
-			// - https://github.com/hakimel/reveal.js#dependencies
-			Reveal.initialize({
-				dependencies: [
-					{ src: 'plugin/markdown/marked.js' },
-					{ src: 'plugin/markdown/markdown.js' },
-					{ src: 'plugin/notes/notes.js', async: true },
-					{ src: 'plugin/highlight/highlight.js', async: true }
-				]
-			});
-		</script>
-	</body>
+      9-10 November 2019
+
+      <br>
+      Sebastian 'slomo' Dröge
+      <br>
+      <img data-src="logos/rust.svg" style="border:0px;
+      background-color:rgba(0,0,0,0.0); width: 150px; height: auto">
+    </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Who: Sebastian Dröge
+
+    - GStreamer developer and maintainer since 2006
+    - Rust enthusiast
+    - Maintainer of the GStreamer Rust bindings
+    - Co-founder of Centricular Ltd
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Overview
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### We're going to develop a cross-platform, native WebRTC application
+
+    - Written in safe Rust
+    - Audio/video real-time communication
+      - like Skype, Hangouts, zoom. ...
+      - today: 1-on-1, tomorrow: many-to-many
+    - Command-line
+    - Can communicate with browsers or itself
+    - Webcam/mic or generated test video/audio
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    Let's see it in action
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC
+
+    - W3C standard for real-time communication on the web
+
+    - Defines underlying protocols
+      - RTP, DTLS/SRTP, SCTP, ICE, SDP
+      - Opus audio, VP8/H264 video
+
+    <aside class="notes" data-markdown>
+      - Supported by all major browsers
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC
+
+    - Defines negotiation/handshake between peers
+      - But not the transport!
+
+    - Defines a JavaScript API
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC
+
+    - Only few implementations available
+      - Google's WebRTC used by almost all browsers
+      - GStreamer's used by Servo and us
+       - Not feature-equivalent!
+      - Janus, ...
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC - Signalling
+
+    - Media transport is peer to peer
+      - Peers need to find each other
+
+    - Usually: WebSocket connection via a server
+      - Allows both peers to know about each other
+      - We'll do this!
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC - Media Description Signalling
+
+    <img data-src="img/jsep.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+
+    <aside class="notes" data-markdown>
+      - For finding common features (codecs, etc)
+      - Offer/answer model
+      - One initiates with an offer, all it can do
+      - Other answers based on that with the common subset
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC - ICE Signalling, or: The Internet sucks
+
+    <img data-src="img/turn.png" style="border:0px;
+    background-color:rgba(255,255,255,255);">
+
+    <aside class="notes" data-markdown>
+        - No direct connections possible, usually (NATs)
+        - ICE tries to find ways
+        - Direct, STUN (hole punching), TURN (proxy)
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### WebRTC - More infos
+
+    - https://www.w3.org/TR/webrtc/
+    - https://www.html5rocks.com/en/tutorials/webrtc/infrastructure
+      - Pictures before stolen from there
+    - https://webrtchacks.com/sdp-anatomy/
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio
+
+    - One of the two major Rust async IO frameworks
+      - A few years old by now
+      - The other &amp; newer is async-std: https://async.rs
+
+    - We use Tokio here
+      - No WebSocket library for async-std yet
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio
+
+    - Making use of the Rust async infrastructure
+      - `std::future::Future`, `Stream`, etc.
+      - `async` / `await`
+      - Needs an alpha release currently
+
+    - Provides a runtime/executor on top of it
+      - Scheduling futures
+      - Concrete IO types, e.g. `TcpStream`
+      - Timers, etc.
+
+    <aside class="notes" data-markdown>
+      - Basically the same as async-std but not the same
+        API: async-std follows std patterns more closely
+      - Tokio gives more control (currently)
+      - See Florian's talk tomorrow
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio - Why async IO?
+
+    - "Userspace Threads"
+      - OS threads are expensive
+    - Handle multiple connections and other tasks in fewer OS threads
+    - Scalability to 10k or more connections
+
+    <aside class="notes" data-markdown>
+      - Can do other things on the thread while waiting for IO
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio - `std::future::Future`
+
+    - A value that represents the result of an operation
+      - The result might not be available yet!
+    - Get notified when the result is available
+    - Combinators and `async` / `await` for working with them
+
+    - Spawned on an executor to actually be started
+
+    <aside class="notes" data-markdown>
+      - Also other executors: GLib, threadpools, etc
+    </aside>
+  </textarea>
+</section>
+
+<section>
+  <h4>Tokio - Futures</h4>
+  <pre><code class="rust">
+// Do an HTTP request and print the body
+let fut = reqwest::get("https://...")
+    .and_then(|resp| {
+        println!("body: {:?}", resp.text());
+    })
+    .or_else(|err| ...);
+
+// Spawn and block on the future
+let rt = tokio::Runtime::new().unwrap();
+rt.block_on(fut);
+  </code></pre>
+  <aside class="notes" data-markdown>
+    - Can spawn many things on the runtime
+    - No need to block in general
+    - Blocking gives the result of the future
+  </aside>
+</section>
+
+<section>
+  <h4>Tokio - Async/await</h4>
+  <pre><code class="rust">
+// Do an HTTP request and print the body
+let fut = async {
+    let resp = reqwest::get("https://...")
+        .await?;
+    println!("body: {:?}", resp.text());
+};
+
+// Spawn and block on the future
+let rt = tokio::Runtime::new().unwrap();
+rt.block_on(fut);
+  </code></pre>
+  <aside class="notes" data-markdown>
+    - More imperative control flow
+    - Much easier with borrowing, etc.
+    - Works closer to normal Rust code
+  </aside>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Tokio - `Stream`s, `Sink`s, etc.
+
+    - `Stream`: Async version of `Iterator`
+    - `Sink`: For async writing out one or more value
+    - `AsyncRead` / `AsyncWrite`: See `Read` / `Write`
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### GStreamer
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### GStreamer
+
+    - Cross-platform multimedia framework
+    - Pipeline-based, heavily multi-threaded
+    - Written in C with GObject
+      - Great Rust bindings exist
+      - Not tied to GTK+ or GNOME at all
+
+    <aside class="notes" data-markdown>
+      - Good Windows/macOS/iOS/Android/Linux/BSD support
+      - Used "everywhere"
+      - Binaries, free software
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/pipeline_generic.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
+
+    <aside class="notes" data-markdown>
+      - Bins, elements: hierarchy, reusable
+      - Message-passing communication between elements
+      - Topology can be changed at runtime
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### GStreamer
+
+    - Toolbox for higher-level multimedia processing
+    - Batteries included
+    - Usable from many languages
+
+    <aside class="notes" data-markdown>
+      - Components for all kinds of tasks
+      - Working on a pipeline graph instead of
+        shovling data around manually
+      - Not alternative to ffmpeg: making use of it and other libraries
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### GStreamer is not
+
+    - Media player or playback library
+    - Codec and protocol library
+    - Transcoding tool
+    - Streaming server
+    <br>
+    ... can be used to build all that!
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Object-oriented Programming
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### OOP
+
+    - GStreamer is an OOP API
+    - Rust has no support for subclassing/inheritance
+      - Emulated transparently in the bindings via traits
+      - Creating new subclasses is possible but we don't do that
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### OOP
+
+    - Each object behaves like a `Rc&lt;RefCell&lt;T&gt;&gt;`
+      - Refcounting + interior mutability
+    - Type system with RTTI, introspection, (partial) reflection
+    - Bindings expose this in safe Rust
+
+    <aside class="notes" data-markdown>
+      - Get type id, check class hierarchy, properties, signals
+      - Create types from id, property/signal via string names
+      - GValue container for arbitrary types
+      - up/down casting
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Let's get started!
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Requirements
+
+    - Rust toolchain 1.39 or recent nightly/beta
+      - MSVC toolchain on Windows
+    - GStreamer 1.14 or newer
+      - Binaries from USB for Windows/macOS
+      - Your distro's packages for Linux
+       - Make sure to install the WebRTC support
+    - Laptop with webcam and Internet connection
+      - No webcam is also fine
+
+    <aside class="notes" data-markdown>
+      - Binaries contain everything we need for the
+        workshop, otherwise compiling via homebrew
+        or similar would take ages
+      - Work together with your neighbour if you want
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Setup
+
+    - Set `PKG_CONFIG_PATH` environment variable to the `lib/pkgconfig` directory
+    - Include the `bin` directory in your `PATH`
+    - Set `GST_PLUGIN_SYSTEM_PATH` to `lib/gstreamer-1.0`
+    - Set `XDG_DATA_DIRS` to include `share`
+
+    <aside class="notes" data-markdown>
+      - Anything else?
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Code
+
+    - Final application at
+      - https://github.com/sdroege/rustfest-barcelona19-gst-webrtc-workshop
+    - Tags for the separate steps of the workshop
+
+    <aside class="notes" data-markdown>
+      - Implementation in incremental steps here
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Docs
+
+    - Docs for GLib and GStreamer Rust bindings at
+      - https://gtk-rs.org/docs/glib
+      - https://slomo.pages.freedesktop.org/rustdocs/gstreamer/gstreamer/
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 1
+    #### Tokio skeleton
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Basics
+
+    - We'll go through each important type first
+      - What is it, how can it be used?
+    - Then go together through the code with more explanations
+    - Finally everybody has some time to replicate the chapter
+      - Based on existing code
+      - Reading docs
+      - Playing around
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Basics
+
+    - We'll go through each important type first
+      - What is it, how can it be used?
+    - Then go together through the code with more explanations
+    - Finally everybody has some time to replicate the chapter
+      - Based on existing code
+      - Reading docs
+      - Playing around
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 2
+    #### Add an application menu and about dialog
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-2.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gio::SimpleAction`
+
+    - Application/window actions
+      - Can be remote-controlled
+      - Can be activated or state-changed with custom parameter/state type
+    - Stored in application or window
+      - Retrievable by name, callable from anywhere
+    - Good for decoupling code
+
+    <aside class="notes" data-markdown>
+      - gio::Action subclass
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gio::Menu`
+
+    - Menu *model*, no UI
+    - Triggers actions
+    - Allows remote menus
+      - Global (macOS-style) menu
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::MenuButton`
+
+    - Button that shows a `gio::Menu` on click
+    - Can contain another widget
+      - e.g. a label or image
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Image`
+
+    - Widget that shows an image
+    - Can load PNG, SVG, etc.
+    - Can show an icon by name
+      - Theming
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::AboutDialog`
+
+    - Special kind of `Window`, `Dialog
+    - Pre-defined look with properties for
+      - Name, authors, website, etc.
+    - Close button
+
+    <aside class="notes" data-markdown>
+      - gtk::Dialog, Window, etc subclass
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 3
+    #### Webcam view
+
+    <aside class="notes" data-markdown>
+      - Let's start using GStreamer
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-3.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/pipeline_main.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::init()`
+
+    - Necessary to initialize GStreamer
+    - Checks what plugins are available and changed since last run
+
+    <aside class="notes" data-markdown>
+      - Not calling it will make most GStreamer API panic
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Pipeline`
+
+    - Top-level pipeline object
+    - Contains the actual pipeline elements
+    - Provides clock and messaging infrastructure
+
+    <aside class="notes" data-markdown>
+      - gst::Bin, gst::Element
+      - Have states like all elements
+      - Can contain/manage other elements
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::parse_launch()`
+
+    - Creates a `gst::Pipeline` from a textual description
+    - `autovideosrc ! queue ! videoconvert ! gtkglsink`
+      - Also allows branching, parallel chains, ...
+
+    <aside class="notes" data-markdown>
+      - Also possible to create and connect each part manually
+      - Gives more power
+      - Explain elements
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Bus`
+
+    - Provides message notifications from the pipeline
+      - Errors, Warnings, End-of-stream, ...
+    - Can easily dispatch messages to our main thread
+    - `gst::MessageView` enum for inspecting messages
+
+    <aside class="notes" data-markdown>
+      - Remember: GTK single-threaded, GStreamer not
+      - Basically a thread-safe message queue
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `fragile::Fragile`
+
+    - Runtime checking for the `Send` trait
+    - What is `RefCell` to references
+
+    <aside class="notes" data-markdown>
+      - Bus can dispatch to our main thread but the type system can't know
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtksink`
+
+    - Provides video output from GStreamer to GTK+
+    - Provides a `gtk::Widget` via "widget" property
+      - `sink.get_property()`
+      - `window.add(&amp;widget)`
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 4
+    #### Settings dialog for snapshot/record settings
+
+    <aside class="notes" data-markdown>
+      - More GTK+ widget usage
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-4.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Settings Storage
+
+    - `serde` toml configuration file
+    - Stored in user config directory
+    - `glib` provides us with user config, pictures, videos directories
+    - Normal Rust struct with derived `Serialize`/`Deserialize`
+
+    <aside class="notes" data-markdown>
+      - Simply load from disk whenever it changes for simplicity
+      - Simply store directly whenever it is changed
+      - We use the FS as persistent storage
+      - Mention GSettings
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Dialog`
+
+    - Dialog with close button and custom content area
+    - Like the `AboutDialog` but we define the content
+    - Allows adding pre-defined and custom buttons
+      - Trigger the `response` signal with the button id
+
+    <aside class="notes" data-markdown>
+      - We build the dialog manually to learn widgets
+      - See gtk::Builder
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Grid`
+
+    - Table layout container for widgets
+      - Items attached to specific rows/colums
+    - Other commonly used container: `gtk::Box`
+      - Allows dynamic placement of widgets vertically or horizontally
+
+    <aside class="notes" data-markdown>
+      - We build the dialog manually to learn widgets
+      - See gtk::Builder
+      - gtk::Container, gtk::Bin
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Label`
+
+    - Simple plain text widget
+
+    <aside class="notes" data-markdown>
+      - Like anything, can be styled with CSS
+      - Pango markup
+      - Text positioning
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::FileChooserButton`
+
+    - Button that opens a file chooser
+      - Stores selected location
+      - Allowed selection can be configured
+    - Set default what is stored in the settings
+
+    <aside class="notes" data-markdown>
+      - Combination of Button and FileChooserDialog in one
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::ComboBoxText`
+
+    - Text-based combo box
+    - Allows selecting one out of multiple options
+
+    <aside class="notes" data-markdown>
+      - Simple text based: also exists with backing model
+      - Text entry: ComboBoxEntry
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::SpinButton`
+
+    - +/- integer/decimal value selector button
+    - Configurable range and step
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 5
+    #### Implement snapshotting timer
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-5.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Overlay`
+
+    - Widget container
+      - One main widget
+      - Overlay widgets stacked on each other
+
+    <aside class="notes" data-markdown>
+      - Main widget of our window
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::ToggleButton`
+
+    - Button that can be toggled between pressed and not-pressed
+    - Keeps boolean state ("active")
+    - `btn.connect_clicked()` for providing callback
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::CssProvider` &amp; `gtk::StyleContext`
+
+    - Allows custom styling of widgets via CSS
+    - Provider contains CSS itself
+    - Style contexts are added to application screen
+      - With application priority
+      - Widgets select style based on all providers
+
+    <aside class="notes" data-markdown>
+      - Initialize as part of the application
+      - Use CSS classes via widget names
+      - Our timer label
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::Widget::set_name()`
+
+    - Widget names are matched against CSS selectors
+      - Together with their class, e.g. `gtk::Label`
+      - See documentation for what is possible
+
+    <aside class="notes" data-markdown>
+      - A lot is possible!
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::timeout_add()`
+
+    - Calls a callback in pre-defined intervals
+      - Until it returns `glib::Continue(false)`
+    - Called from our main thread, calls in our main thread
+
+    <aside class="notes" data-markdown>
+      - glib::timeout_add() from arbitrary threads: Needs Send
+      - other kinds of callbacks: idle, unix signals, fd readiness
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 6
+    #### Implement snapshotting
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Sample`
+
+    - Contains a buffer with metadata
+      - E.g. format information
+      - Buffer == video frame in our case
+    - Last sample can be retrieved from sink
+      - "last-sample" property
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Caps`
+
+    - Format description
+      - e.g. `image/jpeg, width=640, height=480`
+
+    <aside class="notes" data-markdown>
+      - Like mimetypes
+      - Fields optional, can describe multiple possibilities
+      - Ranges, lists, ...
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst_video::convert_sample_async()`
+
+    - Takes a sample and output caps
+    - Converts into the given format or times/errors out
+    - Calls callback with the result
+      - from our main thread
+
+    <aside class="notes" data-markdown>
+      - Closure needs to be Send
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Buffer`
+
+    - Contained in the sample
+    - Contains the actual data
+      - Must be mapped to get access as `&amp;[u8]`
+    - Copy-on-write + reference counting
+
+    <aside class="notes" data-markdown>
+      - Content can be stored in arbitrary ways
+      - e.g. malloc(), GL textures + transparent down/uploading
+      - See `Arc::make_mut()`
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 7
+    #### Implement recording (part 1)
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-7.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/pipeline_recording.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `tee`
+
+    - "Stream splitter" element
+    - Allows addition/removal of outputs at any time
+
+    <aside class="notes" data-markdown>
+      - Does not copy any media data: refcounting
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `filesink`
+
+    - Writes a stream to a local file
+    - "location" property for the path
+      - Must be UTF-8
+
+    <aside class="notes" data-markdown>
+      - Does not care about the format
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Encoders
+
+    - Convert raw video into compressed video
+      - `x264enc` for H.264
+      - `vp8enc` for VP8/WebM
+    - Both work basically the same
+      - apart from properties
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Muxers
+
+    - Multiplex audio/video into a container format
+      - `mp4mux` for MP4
+      - `webmmux` for WebM
+    - Both work basically the same
+      - apart from properties
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::parse_bin_from_description()`
+
+    - Similar to `gst::parse_launch()` but creates a `gst::Bin`
+      - a "pipeline part" containing one or more elements
+
+    <aside class="notes" data-markdown>
+      - We need to connect the result into our main pipeline
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gst::Pad`
+
+    - "Connector" or "port" between elements
+      - Source direction outputs data
+      - Sink direction consumes data
+    - Can be static, appear at any time or on request
+      - `elt.get_static_pad()`
+      - "pad-added" / "pad-removed" signals
+      - `elt.request_pad()` / `elt.release_request_pad()`
+
+    <aside class="notes" data-markdown>
+      - Examples for pad types
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Adding recording bin
+
+    - Create bin
+    - Set "location" property on `filesink`
+    - Set bin to `gst::State::Playing`
+    - Add to pipeline
+    - Get request pad from `tee`
+    - Link to `tee` pad to bin
+
+    <aside class="notes" data-markdown>
+      - We can state before adding because pipeline part is data driven and does not produce
+      - Careful
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 8
+    #### Implement recording (part 2)
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Stopping and removing recording
+
+    - More tricky!
+    - Wait until `tee` pad is idle
+      - Pad probe callback
+    - Unlink, release request pad
+    - Async send End-of-stream event (EOS)
+      - Wait for message, then shutdown and remove bin
+
+    <aside class="notes" data-markdown>
+      - Not idle: unlinking could block
+      - EOS: finalize the stream
+      - Event becomes message once done
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 9
+    #### Error dialogs
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `gtk::MessageDialog`
+
+    - Pre-defined dialog for errors, warnings, information, etc.
+    - Like other dialogs can/should be modal
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Errors from other threads
+
+    - `glib::idle_add()` runs on the main loop
+    - `gst::Message::new_application()` with custom content posted on the bus
+    - `futures_channel`
+
+    <aside class="notes" data-markdown>
+      - We use the message here as it's all set up already
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 10
+    #### Next steps
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Ensure that recording has stopped before quit
+
+    - Trigger recording stop code
+    - Don't let application shut down before it's finished
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/chapter-10.png" style="border:0px; background-color:rgba(0,0,0,0.0);">
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Effects
+
+    - Add before the `tee`
+    - Don't forget converters
+    - Addition/removal works the same as for stopping of recording
+    - Interesting effects
+      - `agingtv`, `shagadelictv`, `vertigotv`, others from the `effectv` plugin
+      - `gaudieffects` plugin
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Effects Dialog
+
+    - Could show a selection of effects that can be chosen from
+      - Even better live preview!
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    Let your imagination run freely!
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ## Thanks!
+
+    We hope you enjoyed the workshop and could learn some useful new tools
+  </textarea>
+</section>
+
+                        </div>
+                </div>
+
+                <script src="js/reveal.js"></script>
+
+                <script>
+                        // More info about config & dependencies:
+                        // - https://github.com/hakimel/reveal.js#configuration
+                        // - https://github.com/hakimel/reveal.js#dependencies
+                        Reveal.initialize({
+                                dependencies: [
+                                        { src: 'plugin/markdown/marked.js' },
+                                        { src: 'plugin/markdown/markdown.js' },
+                                        { src: 'plugin/notes/notes.js', async: true },
+                                        { src: 'plugin/highlight/highlight.js', async: true }
+                                ]
+                        });
+                </script>
+        </body>
 </html>
