@@ -38,7 +38,7 @@ struct Args {
     #[structopt(short, long, default_value = "wss://webrtc.nirbheek.in:8443")]
     server: String,
     #[structopt(short, long)]
-    peer_id: u32,
+    peer_id: Option<u32>,
 }
 
 // JSON messages we communicate with
@@ -155,23 +155,25 @@ impl App {
         }));
 
         // Connect to on-negotiation-needed to handle sending an Offer
-        let app_clone = app.downgrade();
-        app.webrtcbin
-            .connect("on-negotiation-needed", false, move |values| {
-                let _webrtc = values[0].get::<gst::Element>().unwrap();
+        if app.args.peer_id.is_some() {
+            let app_clone = app.downgrade();
+            app.webrtcbin
+                .connect("on-negotiation-needed", false, move |values| {
+                    let _webrtc = values[0].get::<gst::Element>().unwrap();
 
-                let app = upgrade_weak!(app_clone, None);
-                if let Err(err) = app.on_negotiation_needed() {
-                    gst_element_error!(
-                        app.pipeline,
-                        gst::LibraryError::Failed,
-                        ("Failed to negotiate: {:?}", err)
-                    );
-                }
+                    let app = upgrade_weak!(app_clone, None);
+                    if let Err(err) = app.on_negotiation_needed() {
+                        gst_element_error!(
+                            app.pipeline,
+                            gst::LibraryError::Failed,
+                            ("Failed to negotiate: {:?}", err)
+                        );
+                    }
 
-                None
-            })
-            .unwrap();
+                    None
+                })
+                .unwrap();
+        }
 
         // Whenever there is a new ICE candidate, send it to the peer
         let app_clone = app.downgrade();
@@ -328,6 +330,45 @@ impl App {
         Ok(())
     }
 
+    // Once webrtcbin has create the answer SDP for us, handle it by sending it to the peer via the
+    // WebSocket connection
+    fn on_answer_created(&self, promise: &gst::Promise) -> Result<(), anyhow::Error> {
+        let reply = match promise.wait() {
+            gst::PromiseResult::Replied => promise.get_reply().unwrap(),
+            err => {
+                bail!("Answer creation future got no reponse: {:?}", err);
+            }
+        };
+
+        let answer = reply
+            .get_value("answer")
+            .unwrap()
+            .get::<gst_webrtc::WebRTCSessionDescription>()
+            .expect("Invalid argument");
+        self.webrtcbin
+            .emit("set-local-description", &[&answer, &None::<gst::Promise>])
+            .unwrap();
+
+        println!(
+            "sending SDP answer to peer: {}",
+            answer.get_sdp().as_text().unwrap()
+        );
+
+        let message = serde_json::to_string(&JsonMsg::Sdp {
+            type_: "answer".to_string(),
+            sdp: answer.get_sdp().as_text().unwrap(),
+        })
+        .unwrap();
+
+        self.send_msg_tx
+            .lock()
+            .unwrap()
+            .try_send(WsMessage::Text(message))
+            .with_context(|| format!("Failed to send SDP answer"))?;
+
+        Ok(())
+    }
+
     // Handle incoming SDP answers from the peer
     fn handle_sdp(&self, type_: &str, sdp: &str) -> Result<(), anyhow::Error> {
         if type_ == "answer" {
@@ -341,6 +382,48 @@ impl App {
             self.webrtcbin
                 .emit("set-remote-description", &[&answer, &None::<gst::Promise>])
                 .unwrap();
+
+            Ok(())
+        } else if type_ == "offer" {
+            print!("Received offer:\n{}\n", sdp);
+
+            let ret = gst_sdp::SDPMessage::parse_buffer(sdp.as_bytes())
+                .map_err(|_| anyhow!("Failed to parse SDP offer"))?;
+
+            // And then asynchronously start our pipeline and do the next steps. The
+            // pipeline needs to be started before we can create an answer
+            let app_clone = self.downgrade();
+            self.pipeline.call_async(move |_pipeline| {
+                let app = upgrade_weak!(app_clone);
+
+                let offer = gst_webrtc::WebRTCSessionDescription::new(
+                    gst_webrtc::WebRTCSDPType::Offer,
+                    ret,
+                );
+
+                app.0
+                    .webrtcbin
+                    .emit("set-remote-description", &[&offer, &None::<gst::Promise>])
+                    .unwrap();
+
+                let app_clone = app.downgrade();
+                let promise = gst::Promise::new_with_change_func(move |promise| {
+                    let app = upgrade_weak!(app_clone);
+
+                    if let Err(err) = app.on_answer_created(promise) {
+                        gst_element_error!(
+                            app.pipeline,
+                            gst::LibraryError::Failed,
+                            ("Failed to send SDP answer: {:?}", err)
+                        );
+                    }
+                });
+
+                app.0
+                    .webrtcbin
+                    .emit("create-answer", &[&None::<gst::Structure>, &promise])
+                    .unwrap();
+            });
 
             Ok(())
         } else {
@@ -553,6 +636,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Say HELLO to the server and see if it replies with HELLO
     let our_id = rand::thread_rng().gen_range(10, 10_000);
+    println!("Registering id {} with server", our_id);
     ws.send(WsMessage::Text(format!("HELLO {}", our_id)))
         .await?;
 
@@ -565,17 +649,19 @@ async fn main() -> Result<(), anyhow::Error> {
         bail!("server didn't say HELLO");
     }
 
-    // Join the given session
-    ws.send(WsMessage::Text(format!("SESSION {}", args.peer_id)))
-        .await?;
+    if let Some(peer_id) = args.peer_id {
+        // Join the given session
+        ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
+            .await?;
 
-    let msg = ws
-        .next()
-        .await
-        .ok_or_else(|| anyhow!("didn't receive anything"))??;
+        let msg = ws
+            .next()
+            .await
+            .ok_or_else(|| anyhow!("didn't receive anything"))??;
 
-    if msg != WsMessage::Text("SESSION_OK".into()) {
-        bail!("server error: {:?}", msg);
+        if msg != WsMessage::Text("SESSION_OK".into()) {
+            bail!("server error: {:?}", msg);
+        }
     }
 
     // All good, let's run our message loop
