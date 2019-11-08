@@ -1182,6 +1182,140 @@ loop {
 
 <section data-markdown>
   <textarea data-template>
+    ### Chapter 14
+    #### Multi-party WebRTC
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Multi-party Signalling API
+
+    - `ROOM [name]` instead of `SESSION [id]`
+    - Returns `ROOM_OK [peer1 peer2 ...]`
+    - We need to *call* all these peers
+    - `ROOM_PEER_MSG [peer] [msg]` for SDP/ICE as before
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Multi-party Signalling API
+
+    - `ROOM_PEER_JOINED [peer]` and `ROOM_PEER_LEFT [peer]`
+    - New peers are sending an offer to existing peers, always
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Multi-party Pipeline
+
+    - More or less the same pipeline as before
+    - Multiple `webrtcbin`, one per peer
+    - Only one source, encoder and payloader
+      - Use the `tee` element
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### `tee`
+
+    - Gets one input stream and duplicates it
+    - Always needs one output
+      - Add a `fakesink sync=true` in the beginning
+    - Always needs `queue` element after each output
+      - `webrtcbin` after the `queue`
+
+      <aside class="notes" data-markdown>
+        - Does not copy data
+        - Request, release pads
+        - Can be added/removed at any time
+      </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Multi-party Pipeline
+
+    - Add a new `webrtcbin` whenever a peer appears
+    - Remove the `webrtcbin` whenever a peer disappears
+      - Use a pad probe to remove at the right time
+      - Make sure to get rid of all newly added elements
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Pad probes
+
+    - Callback that is called whenever a condition is met
+      - Buffer available, no dataflow happening, etc.
+      - We use `IDLE` here
+    - `gst::Pad::add_probe()`
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Multi-party Pipeline
+
+    - For now we add a new audio/video sink per peer
+    - New video window for each peer
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Look over the code
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    ### Chapter 15
+    #### More features
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Video Grid
+
+    - We can use the `compositor` element to mix multiple video streams
+    - Can position, resize, etc. the streams
+    - A NxN grid of the active peers can be generated like this
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Audio Mixing
+
+    - `audiomixer` can be used for the same for audio
+    - Mute all but the 2-3 active speakers
+      - `level` element can be used to measure volume level
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### User-interface
+
+    - We could use e.g. GTK for creating a GUI
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Time for you to play around!
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
     ## Thanks!
 
     We hope you enjoyed the workshop and could learn some useful new tools
