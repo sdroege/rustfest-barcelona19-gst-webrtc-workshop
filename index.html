@@ -1215,6 +1215,11 @@ loop {
     - Multiple `webrtcbin`, one per peer
     - Only one source, encoder and payloader
       - Use the `tee` element
+
+      <aside class="notes" data-markdown>
+        - Needs a lot of bandwidth!
+        - Better: use server-side mixing
+      </aside>
   </textarea>
 </section>
 
@@ -1242,8 +1247,8 @@ loop {
 
     - Add a new `webrtcbin` whenever a peer appears
     - Remove the `webrtcbin` whenever a peer disappears
-      - Use a pad probe to remove at the right time
-      - Make sure to get rid of all newly added elements
+      - Use a pad probe to prevent errors
+      - Make sure to get rid of all elements of the peer
   </textarea>
 </section>
 
@@ -1253,7 +1258,7 @@ loop {
 
     - Callback that is called whenever a condition is met
       - Buffer available, no dataflow happening, etc.
-      - We use `IDLE` here
+      - We use `BLOCK_DOWNSTREAM` here
     - `gst::Pad::add_probe()`
   </textarea>
 </section>
