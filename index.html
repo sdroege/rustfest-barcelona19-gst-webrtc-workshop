@@ -1134,10 +1134,10 @@ loop {
       - "queue ! audioconvert ! audioresample ! autoaudiosink"
       - "queue ! videoconvert ! videoscale ! autovideosink"
 
-      <aside class="notes" data-markdown>
-        - queues for buffering
-        - sync state with parent
-      </aside>
+    <aside class="notes" data-markdown>
+      - queues for buffering
+      - sync state with parent
+    </aside>
   </textarea>
 </section>
 
@@ -1216,10 +1216,10 @@ loop {
     - Only one source, encoder and payloader
       - Use the `tee` element
 
-      <aside class="notes" data-markdown>
-        - Needs a lot of bandwidth!
-        - Better: use server-side mixing
-      </aside>
+    <aside class="notes" data-markdown>
+      - Needs a lot of bandwidth!
+      - Better: use server-side mixing
+    </aside>
   </textarea>
 </section>
 
@@ -1233,11 +1233,11 @@ loop {
     - Always needs `queue` element after each output
       - `webrtcbin` after the `queue`
 
-      <aside class="notes" data-markdown>
-        - Does not copy data
-        - Request, release pads
-        - Can be added/removed at any time
-      </aside>
+    <aside class="notes" data-markdown>
+      - Does not copy data
+      - Request, release pads
+      - Can be added/removed at any time
+    </aside>
   </textarea>
 </section>
 
@@ -1269,6 +1269,12 @@ loop {
 
     - For now we add a new audio/video sink per peer
     - New video window for each peer
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    <img data-src="img/pipeline_webrtc_multi.svg" style="border:0px; background-color:rgba(0,0,0,0.0);">
   </textarea>
 </section>
 
