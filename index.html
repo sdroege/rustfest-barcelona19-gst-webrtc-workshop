@@ -970,6 +970,21 @@ loop {
   </textarea>
 </section>
 
+<section>
+  <h4>JSON Format - SDP</h4>
+  <pre><code class="json">
+{
+  "sdp": {
+    "type": "offer",
+    "sdp": "v=0..."
+  }
+}
+  </code></pre>
+  <aside class="notes" data-markdown>
+    - Sent exactly like this over WS
+  </aside>
+</section>
+
 <section data-markdown>
   <textarea data-template>
     #### Look over the code
@@ -1018,6 +1033,21 @@ loop {
     - We have to send ICE candidates
       - `on-ice-candidate` signal
   </textarea>
+</section>
+
+<section>
+  <h4>JSON Format - ICE</h4>
+  <pre><code class="json">
+{
+  "ice": {
+    "candidate": "...",
+    "sdpMLineIndex": 1
+  }
+}
+  </code></pre>
+  <aside class="notes" data-markdown>
+    - Sent exactly like this over WS
+  </aside>
 </section>
 
 <section data-markdown>
