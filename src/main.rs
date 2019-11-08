@@ -1,3 +1,6 @@
+#![recursion_limit = "256"]
+
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak};
 
 use rand::prelude::*;
@@ -38,7 +41,7 @@ struct Args {
     #[structopt(short, long, default_value = "wss://webrtc.nirbheek.in:8443")]
     server: String,
     #[structopt(short, long)]
-    peer_id: Option<u32>,
+    room_id: u32,
 }
 
 // JSON messages we communicate with
@@ -70,8 +73,27 @@ struct AppWeak(Weak<AppInner>);
 struct AppInner {
     args: Args,
     pipeline: gst::Pipeline,
+    video_tee: gst::Element,
+    audio_tee: gst::Element,
+    send_msg_tx: Arc<Mutex<mpsc::UnboundedSender<WsMessage>>>,
+    peers: Mutex<BTreeMap<u32, Peer>>,
+}
+
+// Strong reference to the state of one peer
+#[derive(Debug, Clone)]
+struct Peer(Arc<PeerInner>);
+
+// Weak reference to the state of one peer
+#[derive(Debug, Clone)]
+struct PeerWeak(Weak<PeerInner>);
+
+// Actual peer state
+#[derive(Debug)]
+struct PeerInner {
+    peer_id: u32,
+    bin: gst::Bin,
     webrtcbin: gst::Element,
-    send_msg_tx: Mutex<mpsc::UnboundedSender<WsMessage>>,
+    send_msg_tx: Arc<Mutex<mpsc::UnboundedSender<WsMessage>>>,
 }
 
 // To be able to access the App's fields directly
@@ -83,10 +105,26 @@ impl std::ops::Deref for App {
     }
 }
 
+// To be able to access the Peers's fields directly
+impl std::ops::Deref for Peer {
+    type Target = PeerInner;
+
+    fn deref(&self) -> &PeerInner {
+        &self.0
+    }
+}
+
 impl AppWeak {
     // Try upgrading a weak reference to a strong one
     fn upgrade(&self) -> Option<App> {
         self.0.upgrade().map(App)
+    }
+}
+
+impl PeerWeak {
+    // Try upgrading a weak reference to a strong one
+    fn upgrade(&self) -> Option<Peer> {
+        self.0.upgrade().map(Peer)
     }
 }
 
@@ -98,6 +136,7 @@ impl App {
 
     fn new(
         args: Args,
+        initial_peers: &[&str],
     ) -> Result<
         (
             Self,
@@ -108,9 +147,10 @@ impl App {
     > {
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
-        "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! webrtcbin. \
-         audiotestsrc is-live=true ! opusenc ! rtpopuspay pt=97 ! webrtcbin. \
-         webrtcbin name=webrtcbin"
+        "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! tee name=video-tee ! \
+         queue ! fakesink sync=true \
+         audiotestsrc is-live=true ! opusenc ! rtpopuspay pt=97 ! tee name=audio-tee ! \
+         queue ! fakesink sync=true"
     )?;
 
         // Downcast from gst::Element to gst::Pipeline
@@ -118,14 +158,13 @@ impl App {
             .downcast::<gst::Pipeline>()
             .expect("not a pipeline");
 
-        // Get access to the webrtcbin by name
-        let webrtcbin = pipeline
-            .get_by_name("webrtcbin")
-            .expect("can't find webrtcbin");
-
-        // Set some properties on webrtcbin
-        webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
-        webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
+        // Get access to the tees by name
+        let video_tee = pipeline
+            .get_by_name("video-tee")
+            .expect("can't find video-tee");
+        let audio_tee = pipeline
+            .get_by_name("audio-tee")
+            .expect("can't find audio-tee");
 
         let bus = pipeline.get_bus().unwrap();
 
@@ -150,66 +189,15 @@ impl App {
         let app = App(Arc::new(AppInner {
             args,
             pipeline,
-            webrtcbin,
-            send_msg_tx: Mutex::new(send_ws_msg_tx),
+            video_tee,
+            audio_tee,
+            peers: Mutex::new(BTreeMap::new()),
+            send_msg_tx: Arc::new(Mutex::new(send_ws_msg_tx)),
         }));
 
-        // Connect to on-negotiation-needed to handle sending an Offer
-        if app.args.peer_id.is_some() {
-            let app_clone = app.downgrade();
-            app.webrtcbin
-                .connect("on-negotiation-needed", false, move |values| {
-                    let _webrtc = values[0].get::<gst::Element>().unwrap();
-
-                    let app = upgrade_weak!(app_clone, None);
-                    if let Err(err) = app.on_negotiation_needed() {
-                        gst_element_error!(
-                            app.pipeline,
-                            gst::LibraryError::Failed,
-                            ("Failed to negotiate: {:?}", err)
-                        );
-                    }
-
-                    None
-                })
-                .unwrap();
+        for peer in initial_peers {
+            app.add_peer(peer, true)?;
         }
-
-        // Whenever there is a new ICE candidate, send it to the peer
-        let app_clone = app.downgrade();
-        app.webrtcbin
-            .connect("on-ice-candidate", false, move |values| {
-                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
-                let mlineindex = values[1].get::<u32>().expect("Invalid argument");
-                let candidate = values[2].get::<String>().expect("Invalid argument");
-
-                let app = upgrade_weak!(app_clone, None);
-
-                if let Err(err) = app.on_ice_candidate(mlineindex, candidate) {
-                    gst_element_error!(
-                        app.pipeline,
-                        gst::LibraryError::Failed,
-                        ("Failed to send ICE candidate: {:?}", err)
-                    );
-                }
-
-                None
-            })
-            .unwrap();
-
-        // Whenever there is a new stream incoming from the peer, handle it
-        let app_clone = app.downgrade();
-        app.webrtcbin.connect_pad_added(move |_webrtc, pad| {
-            let app = upgrade_weak!(app_clone);
-
-            if let Err(err) = app.on_incoming_stream(pad) {
-                gst_element_error!(
-                    app.pipeline,
-                    gst::LibraryError::Failed,
-                    ("Failed to handle incoming stream: {:?}", err)
-                );
-            }
-        });
 
         // Asynchronously set the pipeline to Playing
         app.pipeline.call_async(|pipeline| {
@@ -232,14 +220,48 @@ impl App {
             bail!("Got error message: {}", msg);
         }
 
-        let json_msg: JsonMsg = serde_json::from_str(msg)?;
+        if msg.starts_with("ROOM_PEER_MSG ") {
+            // Parse message and pass to the peer if we know about it
+            let mut split = msg["ROOM_PEER_MSG ".len()..].splitn(2, ' ');
+            let peer_id = split
+                .next()
+                .and_then(|s| str::parse::<u32>(s).ok())
+                .ok_or_else(|| anyhow!("Can't parse peer id"))?;
 
-        match json_msg {
-            JsonMsg::Sdp { type_, sdp } => self.handle_sdp(&type_, &sdp),
-            JsonMsg::Ice {
-                sdp_mline_index,
-                candidate,
-            } => self.handle_ice(sdp_mline_index, &candidate),
+            let peers = self.peers.lock().unwrap();
+            let peer = peers
+                .get(&peer_id)
+                .ok_or_else(|| anyhow!("Can't find peer {}", peer_id))?
+                .clone();
+            drop(peers);
+
+            let msg = split
+                .next()
+                .ok_or_else(|| anyhow!("Can't parse peer message"))?;
+
+            let json_msg: JsonMsg = serde_json::from_str(msg)?;
+
+            match json_msg {
+                JsonMsg::Sdp { type_, sdp } => peer.handle_sdp(&type_, &sdp),
+                JsonMsg::Ice {
+                    sdp_mline_index,
+                    candidate,
+                } => peer.handle_ice(sdp_mline_index, &candidate),
+            }
+        } else if msg.starts_with("ROOM_PEER_JOINED ") {
+            // Parse message and add the new peer
+            let mut split = msg["ROOM_PEER_JOINED ".len()..].splitn(2, ' ');
+            let peer_id = split.next().ok_or_else(|| anyhow!("Can't parse peer id"))?;
+
+            self.add_peer(peer_id, false)
+        } else if msg.starts_with("ROOM_PEER_LEFT ") {
+            // Parse message and add the new peer
+            let mut split = msg["ROOM_PEER_LEFT ".len()..].splitn(2, ' ');
+            let peer_id = split.next().ok_or_else(|| anyhow!("Can't parse peer id"))?;
+
+            self.remove_peer(peer_id)
+        } else {
+            Ok(())
         }
     }
 
@@ -265,19 +287,250 @@ impl App {
         Ok(())
     }
 
+    // Add this new peer and if requested, send the offer to it
+    fn add_peer(&self, peer: &str, offer: bool) -> Result<(), anyhow::Error> {
+        println!("Adding peer {}", peer);
+        let peer_id = str::parse::<u32>(peer).with_context(|| format!("Can't parse peer id"))?;
+        let mut peers = self.peers.lock().unwrap();
+        if peers.contains_key(&peer_id) {
+            bail!("Peer {} already called", peer_id);
+        }
+
+        let peer_bin = gst::parse_bin_from_description(
+            "queue name=video-queue ! webrtcbin. \
+             queue name=audio-queue ! webrtcbin. \
+             webrtcbin name=webrtcbin",
+            false,
+        )?;
+
+        // Get access to the webrtcbin by name
+        let webrtcbin = peer_bin
+            .get_by_name("webrtcbin")
+            .expect("can't find webrtcbin");
+
+        // Set some properties on webrtcbin
+        webrtcbin.set_property_from_str("stun-server", STUN_SERVER);
+        webrtcbin.set_property_from_str("bundle-policy", "max-bundle");
+
+        // Add ghost pads for connecting to the input
+        let audio_queue = peer_bin
+            .get_by_name("audio-queue")
+            .expect("can't find audio-queue");
+        let audio_sink_pad = gst::GhostPad::new(
+            Some("audio_sink"),
+            &audio_queue.get_static_pad("sink").unwrap(),
+        )
+        .unwrap();
+        peer_bin.add_pad(&audio_sink_pad).unwrap();
+
+        let video_queue = peer_bin
+            .get_by_name("video-queue")
+            .expect("can't find video-queue");
+        let video_sink_pad = gst::GhostPad::new(
+            Some("video_sink"),
+            &video_queue.get_static_pad("sink").unwrap(),
+        )
+        .unwrap();
+        peer_bin.add_pad(&video_sink_pad).unwrap();
+
+        let peer = Peer(Arc::new(PeerInner {
+            peer_id,
+            bin: peer_bin,
+            webrtcbin,
+            send_msg_tx: self.send_msg_tx.clone(),
+        }));
+
+        // Insert the peer into our map
+        peers.insert(peer_id, peer.clone());
+        drop(peers);
+
+        // Add to the whole pipeline
+        self.pipeline.add(&peer.bin).unwrap();
+
+        // If we should send the offer to the peer, do so from on-negotiation-needed
+        if offer {
+            // Connect to on-negotiation-needed to handle sending an Offer
+            let peer_clone = peer.downgrade();
+            peer.webrtcbin
+                .connect("on-negotiation-needed", false, move |values| {
+                    let _webrtc = values[0].get::<gst::Element>().unwrap();
+
+                    let peer = upgrade_weak!(peer_clone, None);
+                    if let Err(err) = peer.on_negotiation_needed() {
+                        gst_element_error!(
+                            peer.bin,
+                            gst::LibraryError::Failed,
+                            ("Failed to negotiate: {:?}", err)
+                        );
+                    }
+
+                    None
+                })
+                .unwrap();
+        }
+
+        // Whenever there is a new ICE candidate, send it to the peer
+        let peer_clone = peer.downgrade();
+        peer.webrtcbin
+            .connect("on-ice-candidate", false, move |values| {
+                let _webrtc = values[0].get::<gst::Element>().expect("Invalid argument");
+                let mlineindex = values[1].get::<u32>().expect("Invalid argument");
+                let candidate = values[2].get::<String>().expect("Invalid argument");
+
+                let peer = upgrade_weak!(peer_clone, None);
+
+                if let Err(err) = peer.on_ice_candidate(mlineindex, candidate) {
+                    gst_element_error!(
+                        peer.bin,
+                        gst::LibraryError::Failed,
+                        ("Failed to send ICE candidate: {:?}", err)
+                    );
+                }
+
+                None
+            })
+            .unwrap();
+
+        // Whenever there is a new stream incoming from the peer, handle it
+        let peer_clone = peer.downgrade();
+        peer.webrtcbin.connect_pad_added(move |_webrtc, pad| {
+            let peer = upgrade_weak!(peer_clone);
+
+            if let Err(err) = peer.on_incoming_stream(pad) {
+                gst_element_error!(
+                    peer.bin,
+                    gst::LibraryError::Failed,
+                    ("Failed to handle incoming stream: {:?}", err)
+                );
+            }
+        });
+
+        // Add pad probes to both tees for blocking them and
+        // then unblock them once we reached the Playing state.
+        //
+        // Then link them and unblock, in case they got blocked
+        // in the meantime.
+        //
+        // Otherwise it might happen that data is received before
+        // the elements are ready and then an error happens.
+        let audio_src_pad = self.audio_tee.get_request_pad("src_%u").unwrap();
+        let audio_block = audio_src_pad
+            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_pad, _info| {
+                gst::PadProbeReturn::Ok
+            })
+            .unwrap();
+        audio_src_pad.link(&audio_sink_pad)?;
+
+        let video_src_pad = self.video_tee.get_request_pad("src_%u").unwrap();
+        let video_block = video_src_pad
+            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_pad, _info| {
+                gst::PadProbeReturn::Ok
+            })
+            .unwrap();
+        video_src_pad.link(&video_sink_pad)?;
+
+        // Asynchronously set the peer bin to Playing
+        peer.bin.call_async(move |bin| {
+            // If this fails, post an error on the bus so we exit
+            if bin.sync_state_with_parent().is_err() {
+                gst_element_error!(
+                    bin,
+                    gst::LibraryError::Failed,
+                    ("Failed to set peer bin to Playing")
+                );
+            }
+
+            // And now unblock
+            audio_src_pad.remove_probe(audio_block);
+            video_src_pad.remove_probe(video_block);
+        });
+
+        Ok(())
+    }
+
+    // Remove this peer
+    fn remove_peer(&self, peer: &str) -> Result<(), anyhow::Error> {
+        println!("Removing peer {}", peer);
+        let peer_id = str::parse::<u32>(peer).with_context(|| format!("Can't parse peer id"))?;
+        let mut peers = self.peers.lock().unwrap();
+        if let Some(peer) = peers.remove(&peer_id) {
+            drop(peers);
+
+            // Now asynchronously remove the peer from the pipeline
+            let app_clone = self.downgrade();
+            self.pipeline.call_async(move |_pipeline| {
+                let app = upgrade_weak!(app_clone);
+
+                // Block the tees shortly for removal
+                let audio_tee_sinkpad = app.audio_tee.get_static_pad("sink").unwrap();
+                let audio_block = audio_tee_sinkpad
+                    .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_pad, _info| {
+                        gst::PadProbeReturn::Ok
+                    })
+                    .unwrap();
+
+                let video_tee_sinkpad = app.video_tee.get_static_pad("sink").unwrap();
+                let video_block = video_tee_sinkpad
+                    .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_pad, _info| {
+                        gst::PadProbeReturn::Ok
+                    })
+                    .unwrap();
+
+                // Release the tee pads and unblock
+                let audio_sinkpad = peer.bin.get_static_pad("audio_sink").unwrap();
+                let video_sinkpad = peer.bin.get_static_pad("video_sink").unwrap();
+
+                if let Some(audio_tee_srcpad) = audio_sinkpad.get_peer() {
+                    let _ = audio_tee_srcpad.unlink(&audio_sinkpad);
+                    app.audio_tee.release_request_pad(&audio_tee_srcpad);
+                }
+                audio_tee_sinkpad.remove_probe(audio_block);
+
+                if let Some(video_tee_srcpad) = video_sinkpad.get_peer() {
+                    let _ = video_tee_srcpad.unlink(&video_sinkpad);
+                    app.video_tee.release_request_pad(&video_tee_srcpad);
+                }
+                video_tee_sinkpad.remove_probe(video_block);
+
+                // Then remove the peer bin gracefully from the pipeline
+                let _ = app.pipeline.remove(&peer.bin);
+                let _ = peer.bin.set_state(gst::State::Null);
+
+                println!("Removed peer {}", peer.peer_id);
+            });
+        }
+
+        Ok(())
+    }
+}
+
+// Make sure to shut down the pipeline when it goes out of scope
+// to release any system resources
+impl Drop for AppInner {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gst::State::Null);
+    }
+}
+
+impl Peer {
+    // Downgrade the strong reference to a weak reference
+    fn downgrade(&self) -> PeerWeak {
+        PeerWeak(Arc::downgrade(&self.0))
+    }
+
     // Whenever webrtcbin tells us that (re-)negotiation is needed, simply ask
     // for a new offer SDP from webrtcbin without any customization and then
     // asynchronously send it to the peer via the WebSocket connection
     fn on_negotiation_needed(&self) -> Result<(), anyhow::Error> {
-        println!("starting negotiation");
+        println!("starting negotiation with peer {}", self.peer_id);
 
-        let app_clone = self.downgrade();
+        let peer_clone = self.downgrade();
         let promise = gst::Promise::new_with_change_func(move |promise| {
-            let app = upgrade_weak!(app_clone);
+            let peer = upgrade_weak!(peer_clone);
 
-            if let Err(err) = app.on_offer_created(promise) {
+            if let Err(err) = peer.on_offer_created(promise) {
                 gst_element_error!(
-                    app.pipeline,
+                    peer.bin,
                     gst::LibraryError::Failed,
                     ("Failed to send SDP offer: {:?}", err)
                 );
@@ -324,7 +577,10 @@ impl App {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(message))
+            .try_send(WsMessage::Text(format!(
+                "ROOM_PEER_MSG {} {}",
+                self.peer_id, message
+            )))
             .with_context(|| format!("Failed to send SDP offer"))?;
 
         Ok(())
@@ -363,7 +619,10 @@ impl App {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(message))
+            .try_send(WsMessage::Text(format!(
+                "ROOM_PEER_MSG {} {}",
+                self.peer_id, message
+            )))
             .with_context(|| format!("Failed to send SDP answer"))?;
 
         Ok(())
@@ -392,34 +651,34 @@ impl App {
 
             // And then asynchronously start our pipeline and do the next steps. The
             // pipeline needs to be started before we can create an answer
-            let app_clone = self.downgrade();
-            self.pipeline.call_async(move |_pipeline| {
-                let app = upgrade_weak!(app_clone);
+            let peer_clone = self.downgrade();
+            self.bin.call_async(move |_pipeline| {
+                let peer = upgrade_weak!(peer_clone);
 
                 let offer = gst_webrtc::WebRTCSessionDescription::new(
                     gst_webrtc::WebRTCSDPType::Offer,
                     ret,
                 );
 
-                app.0
+                peer.0
                     .webrtcbin
                     .emit("set-remote-description", &[&offer, &None::<gst::Promise>])
                     .unwrap();
 
-                let app_clone = app.downgrade();
+                let peer_clone = peer.downgrade();
                 let promise = gst::Promise::new_with_change_func(move |promise| {
-                    let app = upgrade_weak!(app_clone);
+                    let peer = upgrade_weak!(peer_clone);
 
-                    if let Err(err) = app.on_answer_created(promise) {
+                    if let Err(err) = peer.on_answer_created(promise) {
                         gst_element_error!(
-                            app.pipeline,
+                            peer.bin,
                             gst::LibraryError::Failed,
                             ("Failed to send SDP answer: {:?}", err)
                         );
                     }
                 });
 
-                app.0
+                peer.0
                     .webrtcbin
                     .emit("create-answer", &[&None::<gst::Structure>, &promise])
                     .unwrap();
@@ -452,8 +711,11 @@ impl App {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(message))
-            .with_context(|| format!("Failed to send SDP offer"))?;
+            .try_send(WsMessage::Text(format!(
+                "ROOM_PEER_MSG {} {}",
+                self.peer_id, message
+            )))
+            .with_context(|| format!("Failed to send ICE candidate"))?;
 
         Ok(())
     }
@@ -466,20 +728,20 @@ impl App {
         }
 
         let decodebin = gst::ElementFactory::make("decodebin", None).unwrap();
-        let app_clone = self.downgrade();
+        let peer_clone = self.downgrade();
         decodebin.connect_pad_added(move |_decodebin, pad| {
-            let app = upgrade_weak!(app_clone);
+            let peer = upgrade_weak!(peer_clone);
 
-            if let Err(err) = app.on_incoming_decodebin_stream(pad) {
+            if let Err(err) = peer.on_incoming_decodebin_stream(pad) {
                 gst_element_error!(
-                    app.pipeline,
+                    peer.bin,
                     gst::LibraryError::Failed,
                     ("Failed to handle decoded stream: {:?}", err)
                 );
             }
         });
 
-        self.pipeline.add(&decodebin).unwrap();
+        self.bin.add(&decodebin).unwrap();
         decodebin.sync_state_with_parent().unwrap();
 
         let sinkpad = decodebin.get_static_pad("sink").unwrap();
@@ -509,7 +771,7 @@ impl App {
             return Ok(());
         };
 
-        self.pipeline.add(&sink).unwrap();
+        self.bin.add(&sink).unwrap();
         sink.sync_state_with_parent()
             .with_context(|| format!("can't start sink for stream {:?}", caps))?;
 
@@ -521,16 +783,16 @@ impl App {
     }
 }
 
-// Make sure to shut down the pipeline when it goes out of scope
-// to release any system resources
-impl Drop for AppInner {
+// At least shut down the bin here if it didn't happen so far
+impl Drop for PeerInner {
     fn drop(&mut self) {
-        let _ = self.pipeline.set_state(gst::State::Null);
+        let _ = self.bin.set_state(gst::State::Null);
     }
 }
 
 async fn run(
     args: Args,
+    initial_peers: &[&str],
     ws: impl Sink<WsMessage, Error = WsError> + Stream<Item = Result<WsMessage, WsError>>,
 ) -> Result<(), anyhow::Error> {
     // Split the websocket into the Sink and Stream
@@ -539,7 +801,7 @@ async fn run(
     let mut ws_stream = ws_stream.fuse();
 
     // Create our application state
-    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args)?;
+    let (app, send_gst_msg_rx, send_ws_msg_rx) = App::new(args, initial_peers)?;
 
     let mut send_gst_msg_rx = send_gst_msg_rx.fuse();
     let mut send_ws_msg_rx = send_ws_msg_rx.fuse();
@@ -558,7 +820,9 @@ async fn run(
                     WsMessage::Pong(_) => None,
                     WsMessage::Binary(_) => None,
                     WsMessage::Text(text) => {
-                        app.handle_websocket_message(&text)?;
+                        if let Err(err) = app.handle_websocket_message(&text) {
+                            println!("Failed to parse message: {}", err);
+                        }
                         None
                     },
                 }
@@ -649,21 +913,42 @@ async fn main() -> Result<(), anyhow::Error> {
         bail!("server didn't say HELLO");
     }
 
-    if let Some(peer_id) = args.peer_id {
-        // Join the given session
-        ws.send(WsMessage::Text(format!("SESSION {}", peer_id)))
-            .await?;
+    // Join the given room
+    ws.send(WsMessage::Text(format!("ROOM {}", args.room_id)))
+        .await?;
 
-        let msg = ws
-            .next()
-            .await
-            .ok_or_else(|| anyhow!("didn't receive anything"))??;
+    let msg = ws
+        .next()
+        .await
+        .ok_or_else(|| anyhow!("didn't receive anything"))??;
 
-        if msg != WsMessage::Text("SESSION_OK".into()) {
-            bail!("server error: {:?}", msg);
+    let peers_str;
+    if let WsMessage::Text(text) = &msg {
+        if !text.starts_with("ROOM_OK") {
+            bail!("server error: {:?}", text);
         }
+
+        println!("Joined room {}", args.room_id);
+
+        peers_str = &text["ROOM_OK ".len()..];
+    } else {
+        bail!("server error: {:?}", msg);
     }
 
+    // Collect the ids of already existing peers
+    let initial_peers = peers_str
+        .split(' ')
+        .filter_map(|p| {
+            // Filter out empty lines
+            let p = p.trim();
+            if p.is_empty() {
+                None
+            } else {
+                Some(p)
+            }
+        })
+        .collect::<Vec<_>>();
+
     // All good, let's run our message loop
-    run(args, ws).await
+    run(args, &initial_peers, ws).await
 }
