@@ -21,6 +21,8 @@ use serde_derive::{Deserialize, Serialize};
 use anyhow::{anyhow, bail, Context};
 
 const STUN_SERVER: &str = "stun://stun.l.google.com:19302";
+const VIDEO_WIDTH: u32 = 1024;
+const VIDEO_HEIGHT: u32 = 768;
 
 // upgrade weak reference or return
 #[macro_export]
@@ -75,6 +77,8 @@ struct AppInner {
     pipeline: gst::Pipeline,
     video_tee: gst::Element,
     audio_tee: gst::Element,
+    video_mixer: gst::Element,
+    audio_mixer: gst::Element,
     send_msg_tx: Arc<Mutex<mpsc::UnboundedSender<WsMessage>>>,
     peers: Mutex<BTreeMap<u32, Peer>>,
 }
@@ -147,24 +151,38 @@ impl App {
     > {
         // Create the GStreamer pipeline
         let pipeline = gst::parse_launch(
-        "videotestsrc pattern=ball is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! tee name=video-tee ! \
-         queue ! fakesink sync=true \
-         audiotestsrc is-live=true ! opusenc ! rtpopuspay pt=97 ! tee name=audio-tee ! \
-         queue ! fakesink sync=true"
-    )?;
+            &format!(
+                "videotestsrc is-live=true ! vp8enc deadline=1 ! rtpvp8pay pt=96 ! tee name=video-tee ! \
+                 queue ! fakesink sync=true \
+                 audiotestsrc wave=ticks is-live=true ! opusenc ! rtpopuspay pt=97 ! tee name=audio-tee ! \
+                 queue ! fakesink sync=true \
+                 audiotestsrc wave=silence is-live=true ! audio-mixer. \
+                 audiomixer name=audio-mixer sink_0::mute=true ! audioconvert ! audioresample ! autoaudiosink \
+                 videotestsrc pattern=black ! capsfilter caps=video/x-raw,width=1,height=1 ! video-mixer. \
+                 compositor name=video-mixer background=black sink_0::alpha=0.0 ! capsfilter caps=video/x-raw,width={width},height={height} ! videoconvert ! autovideosink",
+                width=VIDEO_WIDTH,
+                height=VIDEO_HEIGHT,
+        ))?;
 
         // Downcast from gst::Element to gst::Pipeline
         let pipeline = pipeline
             .downcast::<gst::Pipeline>()
             .expect("not a pipeline");
 
-        // Get access to the tees by name
+        // Get access to the tees and mixers by name
         let video_tee = pipeline
             .get_by_name("video-tee")
             .expect("can't find video-tee");
         let audio_tee = pipeline
             .get_by_name("audio-tee")
             .expect("can't find audio-tee");
+
+        let video_mixer = pipeline
+            .get_by_name("video-mixer")
+            .expect("can't find video-mixer");
+        let audio_mixer = pipeline
+            .get_by_name("audio-mixer")
+            .expect("can't find audio-mixer");
 
         let bus = pipeline.get_bus().unwrap();
 
@@ -191,6 +209,8 @@ impl App {
             pipeline,
             video_tee,
             audio_tee,
+            video_mixer,
+            audio_mixer,
             peers: Mutex::new(BTreeMap::new()),
             send_msg_tx: Arc::new(Mutex::new(send_ws_msg_tx)),
         }));
@@ -405,6 +425,45 @@ impl App {
             }
         });
 
+        // Whenever a decoded stream comes available, handle it and connect it to the mixers
+        let app_clone = self.downgrade();
+        peer.bin.connect_pad_added(move |_bin, pad| {
+            let app = upgrade_weak!(app_clone);
+
+            if pad.get_name() == "audio_src" {
+                let audiomixer_sink_pad = app.audio_mixer.get_request_pad("sink_%u").unwrap();
+                pad.link(&audiomixer_sink_pad).unwrap();
+
+                // Once it is unlinked again later when the peer is being removed,
+                // also release the pad on the mixer
+                audiomixer_sink_pad.connect_unlinked(move |pad, _peer| {
+                    if let Some(audiomixer) = pad.get_parent() {
+                        let audiomixer = audiomixer.downcast_ref::<gst::Element>().unwrap();
+                        audiomixer.release_request_pad(pad);
+                    }
+                });
+            } else if pad.get_name() == "video_src" {
+                let videomixer_sink_pad = app.video_mixer.get_request_pad("sink_%u").unwrap();
+                pad.link(&videomixer_sink_pad).unwrap();
+
+                app.relayout_videomixer();
+
+                // Once it is unlinked again later when the peer is being removed,
+                // also release the pad on the mixer
+                let app_clone = app.downgrade();
+                videomixer_sink_pad.connect_unlinked(move |pad, _peer| {
+                    let app = upgrade_weak!(app_clone);
+
+                    if let Some(videomixer) = pad.get_parent() {
+                        let videomixer = videomixer.downcast_ref::<gst::Element>().unwrap();
+                        videomixer.release_request_pad(pad);
+                    }
+
+                    app.relayout_videomixer();
+                });
+            }
+        });
+
         // Add pad probes to both tees for blocking them and
         // then unblock them once we reached the Playing state.
         //
@@ -501,6 +560,46 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn relayout_videomixer(&self) {
+        let mut pads = self.video_mixer.get_sink_pads();
+        if pads.is_empty() {
+            return;
+        }
+
+        // We ignore the first pad
+        pads.remove(0);
+        let npads = pads.len();
+
+        let (width, height) = if npads <= 1 {
+            (1, 1)
+        } else if npads <= 4 {
+            (2, 2)
+        } else if npads <= 16 {
+            (4, 4)
+        } else {
+            // FIXME: we don't support more than 16 streams for now
+            (4, 4)
+        };
+
+        let mut x: i32 = 0;
+        let mut y: i32 = 0;
+        let w = VIDEO_WIDTH as i32 / width;
+        let h = VIDEO_HEIGHT as i32 / height;
+
+        for pad in pads {
+            pad.set_property("xpos", &x).unwrap();
+            pad.set_property("ypos", &y).unwrap();
+            pad.set_property("width", &w).unwrap();
+            pad.set_property("height", &h).unwrap();
+
+            x += w;
+            if x >= VIDEO_WIDTH as i32 {
+                x = 0;
+                y += h;
+            }
+        }
     }
 }
 
@@ -756,28 +855,43 @@ impl Peer {
         let caps = pad.get_current_caps().unwrap();
         let name = caps.get_structure(0).unwrap().get_name();
 
-        let sink = if name.starts_with("video/") {
+        let conv = if name.starts_with("video/") {
             gst::parse_bin_from_description(
-                "queue ! videoconvert ! videoscale ! autovideosink",
+                &format!(
+                    "queue ! videoconvert ! videoscale ! capsfilter caps=video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1",
+                    width=VIDEO_WIDTH,
+                    height=VIDEO_HEIGHT
+                ),
                 true,
             )?
         } else if name.starts_with("audio/") {
-            gst::parse_bin_from_description(
-                "queue ! audioconvert ! audioresample ! autoaudiosink",
-                true,
-            )?
+            gst::parse_bin_from_description("queue ! audioconvert ! audioresample", true)?
         } else {
             println!("Unknown pad {:?}, ignoring", pad);
             return Ok(());
         };
 
-        self.bin.add(&sink).unwrap();
-        sink.sync_state_with_parent()
+        self.bin.add(&conv).unwrap();
+        conv.sync_state_with_parent()
             .with_context(|| format!("can't start sink for stream {:?}", caps))?;
 
-        let sinkpad = sink.get_static_pad("sink").unwrap();
+        let sinkpad = conv.get_static_pad("sink").unwrap();
         pad.link(&sinkpad)
             .with_context(|| format!("can't link sink for stream {:?}", caps))?;
+
+        if name.starts_with("video/") {
+            let srcpad =
+                gst::GhostPad::new(Some("video_src"), &conv.get_static_pad("src").unwrap())
+                    .unwrap();
+            srcpad.set_active(true).unwrap();
+            self.bin.add_pad(&srcpad).unwrap();
+        } else if name.starts_with("audio/") {
+            let srcpad =
+                gst::GhostPad::new(Some("audio_src"), &conv.get_static_pad("src").unwrap())
+                    .unwrap();
+            srcpad.set_active(true).unwrap();
+            self.bin.add_pad(&srcpad).unwrap();
+        }
 
         Ok(())
     }
@@ -867,6 +981,8 @@ fn check_plugins() -> Result<(), anyhow::Error> {
         "playback",
         "videoscale",
         "audioresample",
+        "compositor",
+        "audiomixer",
     ];
 
     let registry = gst::Registry::get();
