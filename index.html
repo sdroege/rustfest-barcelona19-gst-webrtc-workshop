@@ -82,6 +82,56 @@
 
 <section data-markdown>
   <textarea data-template>
+    #### Code
+
+    - Final application at
+      - https://github.com/sdroege/rustfest-barcelona19-gst-webrtc-workshop
+    - Tags for the separate steps of the workshop
+
+    <aside class="notes" data-markdown>
+      - Implementation in incremental steps here
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Requirements
+
+    - Rust toolchain 1.39 or recent nightly/beta
+      - MSVC toolchain on Windows
+    - GStreamer 1.14 or newer
+      - Binaries from USB for Windows/macOS
+      - Your distro's packages for Linux
+       - Make sure to install the WebRTC support
+    - Laptop with webcam and Internet connection
+      - No webcam is also fine
+
+    <aside class="notes" data-markdown>
+      - Binaries contain everything we need for the
+        workshop, otherwise compiling via homebrew
+        or similar would take ages
+      - Work together with your neighbour if you want
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
+    #### Requirements - Ubuntu/Debian
+
+    - libgstreamer1.0-dev libgst-plugins-base1.0-dev
+    - libgst-plugins-bad1.0-dev gstreamer1.0-plugins-bad
+    - gstreamer1.0-plugins-good
+    - gstreamer1.0-nice
+
+    <aside class="notes" data-markdown>
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
     #### WebRTC
   </textarea>
 </section>
@@ -409,28 +459,6 @@ rt.block_on(fut);
 <section data-markdown>
   <textarea data-template>
     ### Let's get started!
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Requirements
-
-    - Rust toolchain 1.39 or recent nightly/beta
-      - MSVC toolchain on Windows
-    - GStreamer 1.14 or newer
-      - Binaries from USB for Windows/macOS
-      - Your distro's packages for Linux
-       - Make sure to install the WebRTC support
-    - Laptop with webcam and Internet connection
-      - No webcam is also fine
-
-    <aside class="notes" data-markdown>
-      - Binaries contain everything we need for the
-        workshop, otherwise compiling via homebrew
-        or similar would take ages
-      - Work together with your neighbour if you want
-    </aside>
   </textarea>
 </section>
 
