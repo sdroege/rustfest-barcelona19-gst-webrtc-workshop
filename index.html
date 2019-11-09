@@ -181,7 +181,7 @@
 
 <section data-markdown>
   <textarea data-template>
-    #### Tokio
+    #### Async IO
   </textarea>
 </section>
 
@@ -223,7 +223,7 @@
 
 <section data-markdown>
   <textarea data-template>
-    #### Tokio - Why async IO?
+    #### Why async IO?
 
     - "Userspace Threads"
       - OS threads are expensive
@@ -238,7 +238,7 @@
 
 <section data-markdown>
   <textarea data-template>
-    #### Tokio - `std::future::Future`
+    #### `std::future::Future`
 
     - A value that represents the result of an operation
       - The result might not be available yet!
@@ -254,7 +254,7 @@
 </section>
 
 <section>
-  <h4>Tokio - Futures</h4>
+  <h4>Futures</h4>
   <pre><code class="rust">
 // Do an HTTP request and print the body
 let fut = reqwest::get("https://...")
@@ -275,7 +275,7 @@ rt.block_on(fut);
 </section>
 
 <section>
-  <h4>Tokio - Async/await</h4>
+  <h4>Async/await</h4>
   <pre><code class="rust">
 // Do an HTTP request and print the body
 let fut = async {
@@ -297,7 +297,7 @@ rt.block_on(fut);
 
 <section data-markdown>
   <textarea data-template>
-    #### Tokio - `Stream`s, `Sink`s, etc.
+    #### `Stream`s, `Sink`s, etc.
 
     - `Stream`: Async version of `Iterator`
     - `Sink`: For async writing out one or more value
