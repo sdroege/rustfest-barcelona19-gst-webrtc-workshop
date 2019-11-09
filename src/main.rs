@@ -7,9 +7,13 @@ use rand::prelude::*;
 
 use structopt::StructOpt;
 
-use tokio::prelude::*;
-use tokio::sync::mpsc;
+use async_std::prelude::*;
+use async_std::task;
+use futures::channel::mpsc;
+use futures::sink::{Sink, SinkExt};
+use futures::stream::StreamExt;
 
+use async_tungstenite::tungstenite;
 use tungstenite::Error as WsError;
 use tungstenite::Message as WsMessage;
 
@@ -187,15 +191,15 @@ impl App {
         let bus = pipeline.get_bus().unwrap();
 
         // Send our bus messages via a futures channel to be handled asynchronously
-        let (send_gst_msg_tx, send_gst_msg_rx) = mpsc::unbounded_channel::<gst::Message>();
+        let (send_gst_msg_tx, send_gst_msg_rx) = mpsc::unbounded::<gst::Message>();
         let send_gst_msg_tx = Mutex::new(send_gst_msg_tx);
         bus.set_sync_handler(move |_, msg| {
-            let _ = send_gst_msg_tx.lock().unwrap().try_send(msg.clone());
+            let _ = send_gst_msg_tx.lock().unwrap().unbounded_send(msg.clone());
             gst::BusSyncReply::Drop
         });
 
         // Channel for outgoing WebSocket messages from other threads
-        let (send_ws_msg_tx, send_ws_msg_rx) = mpsc::unbounded_channel::<WsMessage>();
+        let (send_ws_msg_tx, send_ws_msg_rx) = mpsc::unbounded::<WsMessage>();
 
         // Asynchronously set the pipeline to Playing
         pipeline.call_async(|pipeline| {
@@ -676,7 +680,7 @@ impl Peer {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(format!(
+            .unbounded_send(WsMessage::Text(format!(
                 "ROOM_PEER_MSG {} {}",
                 self.peer_id, message
             )))
@@ -718,7 +722,7 @@ impl Peer {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(format!(
+            .unbounded_send(WsMessage::Text(format!(
                 "ROOM_PEER_MSG {} {}",
                 self.peer_id, message
             )))
@@ -810,7 +814,7 @@ impl Peer {
         self.send_msg_tx
             .lock()
             .unwrap()
-            .try_send(WsMessage::Text(format!(
+            .unbounded_send(WsMessage::Text(format!(
                 "ROOM_PEER_MSG {} {}",
                 self.peer_id, message
             )))
@@ -999,8 +1003,7 @@ fn check_plugins() -> Result<(), anyhow::Error> {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+async fn async_main() -> Result<(), anyhow::Error> {
     // Initialize GStreamer first
     gst::init()?;
 
@@ -1010,7 +1013,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Connect to the given server
     let url = url::Url::parse(&args.server)?;
-    let (mut ws, _) = tokio_tungstenite::connect_async(url).await?;
+    let (mut ws, _) = async_tungstenite::connect_async(url).await?;
 
     println!("connected");
 
@@ -1067,4 +1070,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // All good, let's run our message loop
     run(args, &initial_peers, ws).await
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    task::block_on(async_main())
 }
