@@ -187,6 +187,21 @@
 
 <section data-markdown>
   <textarea data-template>
+    #### Why async IO?
+
+    - "Userspace Threads"
+      - OS threads are expensive
+    - Handle multiple connections and other tasks in fewer OS threads
+    - Scalability to 10k or more connections
+
+    <aside class="notes" data-markdown>
+      - Can do other things on the thread while waiting for IO
+    </aside>
+  </textarea>
+</section>
+
+<section data-markdown>
+  <textarea data-template>
     #### Tokio
 
     - One of the two major Rust async IO frameworks
@@ -217,21 +232,6 @@
         API: async-std follows std patterns more closely
       - Tokio gives more control (currently)
       - See Florian's talk tomorrow
-    </aside>
-  </textarea>
-</section>
-
-<section data-markdown>
-  <textarea data-template>
-    #### Why async IO?
-
-    - "Userspace Threads"
-      - OS threads are expensive
-    - Handle multiple connections and other tasks in fewer OS threads
-    - Scalability to 10k or more connections
-
-    <aside class="notes" data-markdown>
-      - Can do other things on the thread while waiting for IO
     </aside>
   </textarea>
 </section>
