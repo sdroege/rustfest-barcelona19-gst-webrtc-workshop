@@ -1,3 +1,5 @@
+mod macos_workaround;
+
 use std::sync::{Arc, Mutex, Weak};
 
 use rand::prelude::*;
@@ -126,7 +128,7 @@ async fn run(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+async fn real_main() -> Result<(), anyhow::Error> {
     let args = Args::from_args();
 
     // Connect to the given server
@@ -164,4 +166,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // All good, let's run our message loop
     run(args, ws).await
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    macos_workaround::run(|| real_main())
 }
