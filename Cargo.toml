@@ -12,7 +12,7 @@ anyhow = "1"
 url = "2"
 rand = "0.7"
 tungstenite = { git = "https://github.com/snapview/tungstenite-rs.git" }
-tokio-tungstenite = { git = "https://github.com/dbcfd/tokio-tungstenite.git", rev = "tokio2" }
+tokio-tungstenite = { git = "https://github.com/dbcfd/tokio-tungstenite.git", rev = "0c277996" }
 gst = { package = "gstreamer", version = "0.14", features = ["v1_14"] }
 gst-webrtc = { package = "gstreamer-webrtc", version = "0.14" }
 gst-sdp = { package = "gstreamer-sdp", version = "0.14", features = ["v1_14"] }
